@@ -99,15 +99,17 @@ Individual scanned images within a collection.
 | ocr_status | enum | pending / extracted / verified |
 | ocr_confidence | float | Overall confidence score |
 | raw_ocr_text | text | Kraken raw OCR output |
+| segmentation_data | JSONB | Kraken line segmentation with bounding boxes — array of {text, bbox: {x,y,w,h}} |
 | created_at | timestamp | |
 
 #### `records`
-Extracted structured data — one row per incident/entry.
+Extracted structured data — one row per incident/entry. V1 is scoped to loss reports (Verlustmeldungen); columns reflect this document type. When other document types are added, a JSONB `extended_data` column or separate record tables per document type can be introduced without breaking existing data.
 
 | Column | Type | Description |
 |--------|------|-------------|
 | id | UUID | Primary key |
-| page_id | UUID | FK to pages |
+| page_id | UUID | FK to pages (primary page) |
+| page_id_end | UUID | Nullable FK to pages (if entry spans pages) |
 | entry_number | int | Sequential entry number from document |
 | date | date | Date of incident |
 | unit_designation | text | Unit as written in document |
@@ -118,6 +120,7 @@ Extracted structured data — one row per incident/entry.
 | damage_percentage | int | Percentage of damage |
 | location | text | Location as written |
 | raw_text_original | text | Full raw text of this entry |
+| bounding_boxes | JSONB | Array of {page_id, x, y, w, h} regions on the scan |
 | search_embedding | vector(1024) | Embedding of natural language summary |
 | created_at | timestamp | |
 
@@ -132,8 +135,8 @@ People mentioned in records. One record can have multiple personnel.
 | rank_full | text | Full rank name |
 | surname | text | |
 | first_name | text | |
-| fate | text | gefallen / verwundet / vermisst / uninjured |
-| fate_english | text | killed / wounded / missing / uninjured |
+| fate | text | Free text — common values: gefallen, verwundet, vermisst, in Gefangenschaft, tot, uninjured |
+| fate_english | text | Free text — common values: killed, wounded, missing, captured/POW, dead, uninjured |
 
 #### `record_corrections`
 Human corrections to OCR results. Originals are preserved.
@@ -147,6 +150,34 @@ Human corrections to OCR results. Originals are preserved.
 | corrected_value | text | What the human corrected it to |
 | corrected_by | text | Who made the correction |
 | corrected_at | timestamp | |
+
+#### `users`
+Minimal identity model for tracking contributions and enforcing review permissions. V1 is single-user with no authentication — the user table provides referential integrity for audit trails. Multi-user auth is future scope.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | UUID | Primary key |
+| username | text | Unique display name |
+| role | enum | admin / reviewer / contributor |
+| created_at | timestamp | |
+
+All `*_by` columns in other tables (corrected_by, proposed_by, verified_by, reviewer) are FKs to `users.id`. A seed migration creates a default admin user.
+
+#### `pipeline_jobs`
+Tracks OCR pipeline execution state for resume/retry capability.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | UUID | Primary key |
+| collection_id | UUID | FK to collections |
+| stage | enum | kraken / claude / embedding |
+| status | enum | pending / running / completed / failed |
+| total_pages | int | Pages in this job |
+| processed_pages | int | Pages completed so far |
+| last_processed_page_id | UUID | For resume after failure |
+| error_message | text | If failed |
+| started_at | timestamp | |
+| completed_at | timestamp | |
 
 ### Schema: `archive_knowledge`
 
@@ -176,7 +207,7 @@ Descriptions of document types and their column structures.
 | document_type | text | E.g., "loss_report", "strength_return" |
 | description | text | What this document type contains |
 | column_definitions | JSONB | Column names, positions, data types |
-| example_collection_id | UUID | FK to a collection of this type |
+| example_collection_id | UUID | Reference to a collection ID (not a cross-schema FK — stored as UUID, resolved in application code) |
 | trust_level | enum | verified / proposed / ai_suggested |
 
 #### `unit_designations`
@@ -242,9 +273,9 @@ Audit trail for the trust system.
 ```
 1. Import scan folder → create collection + page records
 2. Kraken pass:
-   - Line segmentation
+   - Line segmentation with bounding boxes
    - Raw text extraction
-   - Store in pages.raw_ocr_text
+   - Store text in pages.raw_ocr_text, geometry in pages.segmentation_data
 3. Claude pass:
    - Send image + Kraken text + knowledge base context
    - Claude returns structured JSON
@@ -264,10 +295,30 @@ Audit trail for the trust system.
 - **Reproducibility**: Kraken output is deterministic — important for academic work.
 - **Trainability**: Kraken can be fine-tuned on corrections, reducing Claude dependency over time.
 
+### Embedding Strategy
+
+Search embeddings are generated using `fastembed` with `BAAI/bge-large-en-v1.5` (1024 dimensions). Each record's embedding is computed from a template-generated natural language summary:
+
+> "On {date}, a {aircraft_type} (WNr {werknummer}) from {unit_designation} experienced {incident_type} at {location}. {damage_percentage}% damage. Personnel: {personnel_list with fates}."
+
+The knowledge base enriches these summaries — if the glossary has a verified entry for an abbreviation, the resolved form is used. Glossary embeddings use term + definition concatenated.
+
+### Image Preprocessing
+
+Accepted formats: JPEG, PNG, TIFF. Multi-page TIFFs and PDFs are split into individual page images on import. Kraken handles deskewing internally. No additional preprocessing in V1 — Kraken's defaults are sufficient for clean typewritten scans. Preprocessing pipeline can be extended later for degraded documents.
+
 ### Cost Estimate
-- ~$0.05-0.10 per page with Claude Sonnet
-- ~$15-30 for a 333-page collection
+- ~$0.02-0.15 per page with Claude Sonnet (varies with page density and knowledge context size)
+- ~$15-35 for a 333-page collection
 - One-time cost per collection
+
+### Retrieval-Only AI Enforcement
+
+The analytical search mode enforces retrieval-only behavior through:
+1. Claude receives only retrieved records as context — never the full database
+2. The prompt requires structured output with `record_id` citations for every claim
+3. Post-processing validates that all cited record IDs exist in the database
+4. Responses with unverifiable citations are flagged and the offending claims stripped
 
 ## AI Search Layer
 
@@ -377,6 +428,8 @@ luftarchiv/
 │   │   │       ├── record.py
 │   │   │       ├── personnel.py
 │   │   │       ├── correction.py
+│   │   │       ├── user.py
+│   │   │       ├── pipeline_job.py
 │   │   │       ├── glossary.py
 │   │   │       ├── document_schema.py
 │   │   │       ├── unit_designation.py
