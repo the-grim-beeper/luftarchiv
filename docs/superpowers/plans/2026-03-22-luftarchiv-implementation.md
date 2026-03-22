@@ -4255,6 +4255,288 @@ git commit -m "docs: README, LICENSE, and contributing guide"
 
 ---
 
+## Critical Fixes (from plan review)
+
+The following corrections MUST be applied during implementation. They address bugs, security issues, and missing features identified during plan review.
+
+### Fix 1: Background Task Session Reuse (Task 9)
+
+The extraction trigger endpoint passes a request-scoped `session` into `background_tasks.add_task()`. This session will be closed when the response is sent. Background tasks must create their own sessions.
+
+**In `extraction.py`**, wrap each stage function to create its own session:
+```python
+from app.db.database import SessionLocal
+
+async def run_kraken_stage_background(collection_id: uuid.UUID, job_id: uuid.UUID):
+    async with SessionLocal() as session:
+        await run_kraken_stage(session, collection_id, job_id)
+```
+
+**In the trigger endpoint**, call the background wrapper:
+```python
+background_tasks.add_task(run_kraken_stage_background, collection_id, job.id)
+```
+
+### Fix 2: Path Traversal Vulnerability (Task 17, image serving)
+
+The image serving endpoint accepts arbitrary filesystem paths. Validate paths are within `IMAGE_STORAGE_PATH`:
+```python
+from app.config import settings
+
+@router.get("/pages/image")
+async def serve_image(path: str):
+    image_path = Path(path).resolve()
+    allowed_root = Path(settings.image_storage_path).resolve()
+    if not str(image_path).startswith(str(allowed_root)):
+        raise HTTPException(status_code=403, detail="Access denied")
+    if not image_path.exists():
+        raise HTTPException(status_code=404, detail="Image not found")
+    return FileResponse(image_path)
+```
+
+### Fix 3: Wire Embeddings into Extraction Pipeline (Task 9)
+
+After `run_claude_stage` creates records, embeddings must be generated. Add an embedding stage to the extraction pipeline:
+
+```python
+from app.services.embeddings import generate_record_summary, generate_embedding
+
+async def run_embedding_stage(session: AsyncSession, collection_id: uuid.UUID, job_id: uuid.UUID):
+    """Generate search embeddings for all records in a collection."""
+    job = await session.get(PipelineJob, job_id)
+    job.status = "running"
+    job.started_at = datetime.now(timezone.utc)
+    await session.commit()
+
+    glossary = await _get_glossary_context(session)
+
+    result = await session.execute(
+        select(Record)
+        .join(Record.page)
+        .where(Record.page.has(collection_id=collection_id), Record.search_embedding.is_(None))
+        .options(selectinload(Record.personnel))
+    )
+    records = result.scalars().all()
+
+    for record in records:
+        personnel_dicts = [
+            {"rank_full": p.rank_full, "surname": p.surname, "fate_english": p.fate_english}
+            for p in record.personnel
+        ]
+        summary = generate_record_summary(
+            date=str(record.date) if record.date else None,
+            aircraft_type=record.aircraft_type,
+            werknummer=record.werknummer,
+            unit_designation=record.unit_designation,
+            incident_type=record.incident_type,
+            damage_percentage=record.damage_percentage,
+            location=record.location,
+            personnel=personnel_dicts,
+            glossary=glossary,
+        )
+        record.search_embedding = await generate_embedding(summary)
+        job.processed_pages += 1
+        await session.commit()
+
+    job.status = "completed"
+    job.completed_at = datetime.now(timezone.utc)
+    await session.commit()
+```
+
+### Fix 4: Add Analytical Search Mode (Task 13)
+
+Add to `backend/app/services/search.py`:
+```python
+import json
+import anthropic
+from app.config import settings
+
+async def analytical_search(session: AsyncSession, query: str) -> tuple[list[Record], str]:
+    """AI-powered analytical search. Returns records + summary."""
+    # Step 1: Retrieve candidates via semantic + direct search
+    semantic_results = await semantic_search(session, query, limit=30)
+    direct_results = await direct_search(session, SearchFilters(query=query))
+
+    # Deduplicate
+    seen = set()
+    all_records = []
+    for r in semantic_results + direct_results:
+        if r.id not in seen:
+            seen.add(r.id)
+            all_records.append(r)
+
+    if not all_records:
+        return [], "No matching records found."
+
+    # Step 2: Format records as context for Claude
+    context_lines = []
+    for r in all_records[:50]:  # Cap context size
+        personnel_str = "; ".join(
+            f"{p.rank_abbreviation or ''} {p.surname or ''} ({p.fate_english or ''})"
+            for p in r.personnel
+        )
+        context_lines.append(
+            f"[Record {r.id}] {r.date} | {r.unit_designation} | {r.aircraft_type} | "
+            f"{r.incident_type} | {r.damage_percentage}% | {r.location} | {personnel_str}"
+        )
+
+    # Step 3: Ask Claude to synthesize
+    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    message = await client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=1024,
+        system="You analyze Luftwaffe loss records. Answer ONLY based on the provided records. "
+               "Cite specific record IDs in square brackets for every claim. "
+               "If the records don't contain enough information, say so.",
+        messages=[{"role": "user", "content": f"Records:\n" + "\n".join(context_lines) + f"\n\nQuestion: {query}"}],
+    )
+    summary = message.content[0].text
+
+    # Step 4: Validate citations — extract [Record ...] references and check they exist
+    import re
+    cited_ids = set(re.findall(r'\[Record ([a-f0-9-]+)\]', summary))
+    valid_ids = {str(r.id) for r in all_records}
+    invalid = cited_ids - valid_ids
+    if invalid:
+        for inv_id in invalid:
+            summary = summary.replace(f"[Record {inv_id}]", "[unverified]")
+
+    return all_records, summary
+```
+
+Update the search endpoint to handle analytical mode:
+```python
+elif filters.mode == "analytical" and filters.query:
+    records, ai_summary = await analytical_search(session, filters.query)
+    return SearchResponse(results=[RecordResult.model_validate(r) for r in records], total=len(records), mode="analytical", ai_summary=ai_summary)
+```
+
+### Fix 5: Add Correction Workflow (new Task 13b)
+
+Add a records/corrections API:
+
+`backend/app/api/records.py`:
+```python
+import uuid
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.db.database import get_session
+from app.db.models import Record, RecordCorrection
+
+router = APIRouter(prefix="/api/records", tags=["records"])
+
+
+class CorrectionCreate(BaseModel):
+    field_name: str
+    corrected_value: str
+
+
+@router.get("/{record_id}")
+async def get_record(record_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
+    result = await session.execute(
+        select(Record).where(Record.id == record_id).options(
+            selectinload(Record.personnel), selectinload(Record.corrections)
+        )
+    )
+    record = result.scalar_one_or_none()
+    if not record:
+        raise HTTPException(status_code=404, detail="Record not found")
+    return record
+
+
+@router.post("/{record_id}/correct")
+async def correct_record(
+    record_id: uuid.UUID,
+    correction: CorrectionCreate,
+    session: AsyncSession = Depends(get_session),
+):
+    record = await session.get(Record, record_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Record not found")
+
+    original_value = getattr(record, correction.field_name, None)
+
+    corr = RecordCorrection(
+        record_id=record_id,
+        field_name=correction.field_name,
+        original_value=str(original_value) if original_value is not None else None,
+        corrected_value=correction.corrected_value,
+        corrected_by=uuid.UUID("00000000-0000-0000-0000-000000000001"),  # Default admin in V1
+    )
+    session.add(corr)
+
+    # Apply correction to record
+    if hasattr(record, correction.field_name):
+        setattr(record, correction.field_name, correction.corrected_value)
+
+    await session.commit()
+    return {"status": "corrected", "field": correction.field_name}
+```
+
+Register in `main.py`:
+```python
+from app.api.records import router as records_router
+app.include_router(records_router)
+```
+
+### Fix 6: Use JSONB instead of JSON (Task 2)
+
+In `page.py` and `record.py`, change:
+```python
+from sqlalchemy.dialects.postgresql import JSON, UUID
+```
+to:
+```python
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+```
+And use `JSONB` for `segmentation_data`, `bounding_boxes`, and `column_definitions`.
+
+### Fix 7: Use `asyncio.get_running_loop()` (Tasks 7, 12)
+
+In both `ocr_kraken.py` and `embeddings.py`, replace:
+```python
+loop = asyncio.get_event_loop()
+return await loop.run_in_executor(None, func)
+```
+with:
+```python
+loop = asyncio.get_running_loop()
+return await loop.run_in_executor(None, func)
+```
+
+### Fix 8: ScanViewer Image URL (Task 17)
+
+The image endpoint is on the collections router at `/api/collections/pages/image`, but the ScanViewer constructs `/api/pages/image`. Either:
+- Move the image endpoint to a dedicated pages router at `/api/pages/image`, OR
+- Update ScanViewer to use `/api/collections/pages/image`
+
+Recommended: create a dedicated `backend/app/api/pages.py` router as the spec intended.
+
+### Fix 9: RecordTable View Source Link (Task 18)
+
+The link uses `page_id` (UUID) but the route expects `collectionId/pageNumber`. Pass collection_id and page_number through the search results, or link to a record-specific route.
+
+### Fix 10: Lazy Load in Async Context (Task 6 test)
+
+In `test_import_service.py`, replace:
+```python
+assert len(collection.pages) == 3
+```
+with:
+```python
+from sqlalchemy import select
+from app.db.models import Page
+result = await db_session.execute(select(Page).where(Page.collection_id == collection.id))
+pages = result.scalars().all()
+assert len(pages) == 3
+```
+
+---
+
 ## Completion Checklist
 
 After all tasks are complete, verify:
