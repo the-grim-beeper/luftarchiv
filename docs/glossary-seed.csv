@@ -1,0 +1,48 @@
+term,definition,category
+Bruchlandung,Crash landing,incident_type
+Notlandung,Emergency landing,incident_type
+Bruch,Write-off / Total loss,incident_type
+Luftkampf,Aerial combat,incident_type
+Feindeinwirkung,Enemy action,incident_type
+Beschuss,Shooting / Fire received,incident_type
+Absturz,Crash / Fall,incident_type
+Zwischenlandung,Intermediate / forced landing,incident_type
+Feuer,Fire (on aircraft),incident_type
+Motorschaden,Engine damage,incident_type
+gefallen,Killed in action,fate
+verwundet,Wounded,fate
+vermisst,Missing,fate
+gefangen,Prisoner of war,fate
+tot,Dead,fate
+unverletzt,Uninjured,fate
+leicht verwundet,Lightly wounded,fate
+schwer verwundet,Severely wounded,fate
+Uffz.,Unteroffizier / Corporal,rank
+Gefr.,Gefreiter / Private First Class,rank
+Ogefr.,Obergefreiter / Lance Corporal,rank
+Fw.,Feldwebel / Sergeant,rank
+Ofw.,Oberfeldwebel / Staff Sergeant,rank
+Hfw.,Hauptfeldwebel / Master Sergeant,rank
+Lt.,Leutnant / Second Lieutenant,rank
+Oblt.,Oberleutnant / First Lieutenant,rank
+Hptm.,Hauptmann / Captain,rank
+Maj.,Major / Major,rank
+Obst.,Oberst / Colonel,rank
+JG,Jagdgeschwader / Fighter Wing,unit_type
+KG,Kampfgeschwader / Bomber Wing,unit_type
+ZG,Zerstörergeschwader / Heavy Fighter Wing,unit_type
+StG,Stukageschwader / Dive Bomber Wing,unit_type
+NJG,Nachtjagdgeschwader / Night Fighter Wing,unit_type
+LG,Lehrgeschwader / Demonstration/Training Wing,unit_type
+TG,Transportgeschwader / Transport Wing,unit_type
+Staffel,Squadron (sub-unit of Geschwader),unit_type
+Gruppe,Group (sub-unit of Geschwader),unit_type
+I. Gruppe,First Group of a Geschwader,unit_type
+Bf 109,Messerschmitt Bf 109 single-engine fighter,aircraft
+Bf 110,Messerschmitt Bf 110 twin-engine heavy fighter,aircraft
+Fw 190,Focke-Wulf Fw 190 single-engine fighter,aircraft
+Ju 88,Junkers Ju 88 twin-engine bomber/dive bomber,aircraft
+He 111,Heinkel He 111 twin-engine medium bomber,aircraft
+Do 17,Dornier Do 17 twin-engine medium bomber,aircraft
+Ju 87,Junkers Ju 87 Stuka dive bomber,aircraft
+Me 262,Messerschmitt Me 262 jet fighter,aircraft

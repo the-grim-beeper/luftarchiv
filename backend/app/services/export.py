@@ -1,0 +1,99 @@
+"""
+Export service for Luftarchiv.
+
+Provides export_records_to_csv() which flattens records + their personnel
+into CSV rows with dynamic personnel columns (person_1_rank, person_1_surname, …).
+"""
+
+import csv
+import io
+import uuid
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.db.models import Collection, Page, Record
+
+
+RECORD_FIELDS = [
+    "id",
+    "date",
+    "unit_designation",
+    "aircraft_type",
+    "werknummer",
+    "incident_type",
+    "incident_description",
+    "damage_percentage",
+    "location",
+    "entry_number",
+    "page_id",
+    "created_at",
+]
+
+PERSONNEL_FIELDS = [
+    "rank_abbreviation",
+    "rank_full",
+    "surname",
+    "first_name",
+    "fate",
+    "fate_english",
+]
+
+
+async def export_records_to_csv(
+    collection_id: uuid.UUID,
+    session: AsyncSession,
+) -> tuple[str, str]:
+    """
+    Export all records for a collection as CSV.
+
+    Returns (csv_string, filename).
+    The CSV has one row per record; personnel data is spread into
+    person_1_rank, person_1_surname … person_N_fate columns.
+    """
+    # Verify collection exists
+    collection = await session.get(Collection, collection_id)
+    if not collection:
+        raise ValueError(f"Collection {collection_id} not found")
+
+    # Fetch all records via pages
+    result = await session.execute(
+        select(Record)
+        .join(Record.page)
+        .where(Page.collection_id == collection_id)
+        .options(selectinload(Record.personnel))
+        .order_by(Page.page_number, Record.entry_number)
+    )
+    records = result.scalars().all()
+
+    # Determine max personnel count across all records
+    max_personnel = max((len(r.personnel) for r in records), default=0)
+
+    # Build header
+    header = list(RECORD_FIELDS)
+    for i in range(1, max_personnel + 1):
+        for field in PERSONNEL_FIELDS:
+            header.append(f"person_{i}_{field}")
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(header)
+
+    for record in records:
+        row: list = [str(getattr(record, f, "") or "") for f in RECORD_FIELDS]
+
+        # Personnel columns (padded to max_personnel)
+        for i, person in enumerate(record.personnel):
+            for field in PERSONNEL_FIELDS:
+                row.append(str(getattr(person, field, "") or ""))
+        # Pad remaining personnel slots
+        remaining = max_personnel - len(record.personnel)
+        row.extend([""] * remaining * len(PERSONNEL_FIELDS))
+
+        writer.writerow(row)
+
+    csv_string = output.getvalue()
+    safe_name = collection.name.replace(" ", "_").replace("/", "-")
+    filename = f"luftarchiv_{safe_name}_{collection_id}.csv"
+    return csv_string, filename

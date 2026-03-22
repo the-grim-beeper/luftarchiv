@@ -134,8 +134,6 @@ async def run_embedding_stage(session: AsyncSession, collection_id: uuid.UUID, j
     job.started_at = datetime.now(timezone.utc)
     await session.commit()
 
-    glossary = await _get_glossary_context(session)
-
     result = await session.execute(
         select(Record)
         .join(Record.page)
@@ -146,21 +144,7 @@ async def run_embedding_stage(session: AsyncSession, collection_id: uuid.UUID, j
 
     for record in records:
         try:
-            personnel_dicts = [
-                {"rank_full": p.rank_full, "surname": p.surname, "fate_english": p.fate_english}
-                for p in record.personnel
-            ]
-            summary = generate_record_summary(
-                date=str(record.date) if record.date else None,
-                aircraft_type=record.aircraft_type,
-                werknummer=record.werknummer,
-                unit_designation=record.unit_designation,
-                incident_type=record.incident_type,
-                damage_percentage=record.damage_percentage,
-                location=record.location,
-                personnel=personnel_dicts,
-                glossary=glossary,
-            )
+            summary = generate_record_summary(record)
             record.search_embedding = await generate_embedding(summary)
             job.processed_pages += 1
             await session.commit()
