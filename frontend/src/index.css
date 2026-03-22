@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ivory: #FDFAF5;
+  --color-parchment: #F5F0E8;
+  --color-slate-ink: #1E293B;
+  --color-archive-amber: #92400E;
+  --color-archive-amber-light: #D97706;
+  --color-trust-verified: #059669;
+  --color-trust-proposed: #D97706;
+  --color-trust-ai: #6366F1;
+  --font-heading: 'Playfair Display', Georgia, serif;
+  --font-body: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
