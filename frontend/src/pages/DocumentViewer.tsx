@@ -136,6 +136,21 @@ export default function DocumentViewer() {
     }
   };
 
+  const reExtract = async () => {
+    if (!collectionId) return;
+    if (!confirm('This will delete all extracted records for this collection and re-extract with the currently configured model. Continue?')) return;
+    setExtracting(true);
+    try {
+      await fetch(`/api/collections/${collectionId}/reset-extraction`, { method: 'POST' });
+      await api.startExtraction(collectionId, 'claude');
+      setExtractJob({ status: 'running', processed_pages: 0, total_pages: totalPages });
+      setPageData(null);
+    } catch (e: any) {
+      setExtracting(false);
+      setExtractJob({ status: 'failed', processed_pages: 0, total_pages: 0, error_message: e.message });
+    }
+  };
+
   const exportUrl = collectionId ? api.exportCsv(collectionId) : null;
   const imagePath = pageData?.page?.image_path ?? null;
   const records = pageData?.records ?? [];
@@ -192,6 +207,15 @@ export default function DocumentViewer() {
             className="px-3 h-8 flex items-center rounded bg-trust-ai text-white font-body text-sm hover:bg-indigo-600 transition-colors"
           >
             Extract with Claude
+          </button>
+        )}
+        {records.length > 0 && !extracting && (
+          <button
+            onClick={reExtract}
+            className="px-3 h-8 flex items-center rounded border border-slate-ink/20 text-slate-ink/50 font-body text-xs hover:border-red-300 hover:text-red-600 transition-colors"
+            title="Delete all records and re-extract with the currently configured model"
+          >
+            Re-extract
           </button>
         )}
         {exportUrl && (

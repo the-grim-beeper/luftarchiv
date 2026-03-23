@@ -55,6 +55,54 @@ async def delete_collection(collection_id: uuid.UUID, session: AsyncSession = De
     await session.commit()
 
 
+@router.post("/{collection_id}/reset-extraction")
+async def reset_extraction(
+    collection_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Delete all extracted records for a collection so it can be re-extracted with a different model."""
+    collection = await session.get(Collection, collection_id)
+    if not collection:
+        raise HTTPException(status_code=404, detail="Collection not found")
+
+    # Delete personnel (cascade from records), corrections, then records
+    from app.db.models import Personnel, RecordCorrection
+    records_result = await session.execute(
+        select(Record.id)
+        .join(Page, Record.page_id == Page.id)
+        .where(Page.collection_id == collection_id)
+    )
+    record_ids = [r[0] for r in records_result.fetchall()]
+
+    if record_ids:
+        await session.execute(
+            Personnel.__table__.delete().where(Personnel.record_id.in_(record_ids))
+        )
+        await session.execute(
+            RecordCorrection.__table__.delete().where(RecordCorrection.record_id.in_(record_ids))
+        )
+        await session.execute(
+            Record.__table__.delete().where(Record.id.in_(record_ids))
+        )
+
+    # Reset page statuses
+    await session.execute(
+        Page.__table__.update()
+        .where(Page.collection_id == collection_id)
+        .values(ocr_status="pending")
+    )
+
+    # Reset collection status
+    collection.status = "pending"
+    await session.commit()
+
+    return {
+        "status": "reset",
+        "records_deleted": len(record_ids),
+        "message": f"Cleared {len(record_ids)} records. Collection ready for re-extraction.",
+    }
+
+
 @router.post("/{collection_id}/extract")
 async def start_extraction(
     collection_id: uuid.UUID,
