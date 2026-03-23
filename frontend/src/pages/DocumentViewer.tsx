@@ -124,12 +124,12 @@ export default function DocumentViewer() {
     );
   }
 
-  const startExtraction = async () => {
+  const startExtraction = async (maxPages?: number) => {
     if (!collectionId) return;
     setExtracting(true);
     try {
-      await api.startExtraction(collectionId, 'claude');
-      setExtractJob({ status: 'running', processed_pages: 0, total_pages: totalPages });
+      await api.startExtraction(collectionId, 'claude', maxPages);
+      setExtractJob({ status: 'running', processed_pages: 0, total_pages: maxPages ?? totalPages });
     } catch (e: any) {
       setExtracting(false);
       setExtractJob({ status: 'failed', processed_pages: 0, total_pages: 0, error_message: e.message });
@@ -202,12 +202,21 @@ export default function DocumentViewer() {
         </div>
 
         {records.length === 0 && !extracting && !extractJob && (
-          <button
-            onClick={startExtraction}
-            className="px-3 h-8 flex items-center rounded bg-trust-ai text-white font-body text-sm hover:bg-indigo-600 transition-colors"
-          >
-            Extract with Claude
-          </button>
+          <>
+            <button
+              onClick={() => startExtraction(10)}
+              className="px-3 h-8 flex items-center rounded border border-trust-ai text-trust-ai font-body text-xs hover:bg-indigo-50 transition-colors"
+              title="Extract first 10 pages to test quality before committing to the full collection"
+            >
+              Test (10 pages)
+            </button>
+            <button
+              onClick={() => startExtraction()}
+              className="px-3 h-8 flex items-center rounded bg-trust-ai text-white font-body text-sm hover:bg-indigo-600 transition-colors"
+            >
+              Extract all
+            </button>
+          </>
         )}
         {records.length > 0 && !extracting && (
           <button
@@ -269,10 +278,18 @@ export default function DocumentViewer() {
         </div>
       )}
       {extractJob && extractJob.status === 'completed' && extractJob.processed_pages > 0 && (
-        <div className="mb-3 p-2 bg-emerald-50 border border-emerald-200 rounded-lg shrink-0 flex items-center gap-2">
+        <div className="mb-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg shrink-0 flex items-center justify-between">
           <span className="font-body text-sm text-emerald-700">
             Extraction complete — {extractJob.processed_pages} pages processed.
           </span>
+          {extractJob.processed_pages < totalPages && (
+            <button
+              onClick={() => startExtraction()}
+              className="px-3 h-7 rounded bg-trust-ai text-white font-body text-xs hover:bg-indigo-600 transition-colors"
+            >
+              Continue — extract remaining {totalPages - extractJob.processed_pages} pages
+            </button>
+          )}
         </div>
       )}
 

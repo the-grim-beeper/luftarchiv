@@ -32,13 +32,32 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function CollectionCard({ collection }: { collection: Collection }) {
+function CollectionCard({ collection, onDelete }: { collection: Collection; onDelete: () => void }) {
+  const handleDelete = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!confirm(`Delete "${collection.name}" and all its extracted data? This cannot be undone.`)) return;
+    try {
+      await api.deleteCollection(collection.id);
+      onDelete();
+    } catch (err: any) {
+      alert(`Failed to delete: ${err.message}`);
+    }
+  };
+
   return (
     <Link
       to={`/viewer/${collection.id}`}
-      className="block bg-white border border-parchment rounded-lg p-5 hover:border-archive-amber hover:shadow-sm transition-all group"
+      className="block bg-white border border-parchment rounded-lg p-5 hover:border-archive-amber hover:shadow-sm transition-all group relative"
     >
-      <div className="flex items-start justify-between gap-3 mb-3">
+      <button
+        onClick={handleDelete}
+        className="absolute top-3 right-3 w-6 h-6 rounded flex items-center justify-center text-slate-ink/20 hover:text-red-500 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
+        title="Delete collection"
+      >
+        &times;
+      </button>
+      <div className="flex items-start justify-between gap-3 mb-3 pr-4">
         <h3 className="font-heading text-lg font-semibold text-slate-ink group-hover:text-archive-amber transition-colors leading-tight">
           {collection.name}
         </h3>
@@ -413,7 +432,7 @@ export default function Collections() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {collections.map((c) => (
-            <CollectionCard key={c.id} collection={c} />
+            <CollectionCard key={c.id} collection={c} onDelete={loadCollections} />
           ))}
         </div>
       )}

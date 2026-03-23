@@ -75,7 +75,7 @@ async def run_kraken_stage(session: AsyncSession, collection_id: uuid.UUID, job_
     await session.commit()
 
 
-async def run_claude_stage(session: AsyncSession, collection_id: uuid.UUID, job_id: uuid.UUID):
+async def run_claude_stage(session: AsyncSession, collection_id: uuid.UUID, job_id: uuid.UUID, max_pages: int | None = None):
     """Run LLM extraction on pages that don't already have records."""
     from app.services.llm_config import load_config
 
@@ -109,8 +109,10 @@ async def run_claude_stage(session: AsyncSession, collection_id: uuid.UUID, job_
     )
     all_pages = result.scalars().all()
 
-    # Filter to only pages without records
+    # Filter to only pages without records, respect max_pages limit
     pages_to_process = [p for p in all_pages if p.id not in already_extracted]
+    if max_pages and max_pages < len(pages_to_process):
+        pages_to_process = pages_to_process[:max_pages]
 
     # Update total to reflect actual work
     job.total_pages = len(pages_to_process)
@@ -248,16 +250,16 @@ async def run_embedding_stage(session: AsyncSession, collection_id: uuid.UUID, j
 
 
 # Background task wrappers — create their own sessions
-async def run_kraken_stage_background(collection_id: uuid.UUID, job_id: uuid.UUID):
+async def run_kraken_stage_background(collection_id: uuid.UUID, job_id: uuid.UUID, max_pages: int | None = None):
     async with SessionLocal() as session:
         await run_kraken_stage(session, collection_id, job_id)
 
 
-async def run_claude_stage_background(collection_id: uuid.UUID, job_id: uuid.UUID):
+async def run_claude_stage_background(collection_id: uuid.UUID, job_id: uuid.UUID, max_pages: int | None = None):
     async with SessionLocal() as session:
-        await run_claude_stage(session, collection_id, job_id)
+        await run_claude_stage(session, collection_id, job_id, max_pages)
 
 
-async def run_embedding_stage_background(collection_id: uuid.UUID, job_id: uuid.UUID):
+async def run_embedding_stage_background(collection_id: uuid.UUID, job_id: uuid.UUID, max_pages: int | None = None):
     async with SessionLocal() as session:
         await run_embedding_stage(session, collection_id, job_id)

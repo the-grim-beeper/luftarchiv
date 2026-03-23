@@ -45,14 +45,32 @@ async def get_collection(collection_id: uuid.UUID, session: AsyncSession = Depen
     return collection
 
 
-@router.delete("/{collection_id}", status_code=204)
+@router.delete("/{collection_id}", status_code=200)
 async def delete_collection(collection_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
-    result = await session.execute(select(Collection).where(Collection.id == collection_id))
-    collection = result.scalar_one_or_none()
+    """Delete a collection and all associated data (pages, records, personnel, jobs)."""
+    from app.db.models import Personnel, RecordCorrection
+
+    collection = await session.get(Collection, collection_id)
     if not collection:
         raise HTTPException(status_code=404, detail="Collection not found")
+
+    # Delete in order: personnel → corrections → records → jobs → pages → collection
+    record_ids_result = await session.execute(
+        select(Record.id).join(Page, Record.page_id == Page.id).where(Page.collection_id == collection_id)
+    )
+    record_ids = [r[0] for r in record_ids_result.fetchall()]
+
+    if record_ids:
+        await session.execute(Personnel.__table__.delete().where(Personnel.record_id.in_(record_ids)))
+        await session.execute(RecordCorrection.__table__.delete().where(RecordCorrection.record_id.in_(record_ids)))
+        await session.execute(Record.__table__.delete().where(Record.id.in_(record_ids)))
+
+    await session.execute(PipelineJob.__table__.delete().where(PipelineJob.collection_id == collection_id))
+    await session.execute(Page.__table__.delete().where(Page.collection_id == collection_id))
     await session.delete(collection)
     await session.commit()
+
+    return {"status": "deleted", "records_deleted": len(record_ids)}
 
 
 @router.post("/{collection_id}/reset-extraction")
@@ -107,6 +125,7 @@ async def reset_extraction(
 async def start_extraction(
     collection_id: uuid.UUID,
     stage: str = "kraken",
+    max_pages: int | None = None,
     background_tasks: BackgroundTasks = BackgroundTasks(),
     session: AsyncSession = Depends(get_session),
 ):
@@ -118,8 +137,9 @@ async def start_extraction(
         select(func.count(Page.id)).where(Page.collection_id == collection_id)
     )
     page_count = result.scalar()
+    effective_pages = min(page_count, max_pages) if max_pages else page_count
 
-    job = PipelineJob(collection_id=collection_id, stage=stage, total_pages=page_count)
+    job = PipelineJob(collection_id=collection_id, stage=stage, total_pages=effective_pages)
     session.add(job)
     await session.commit()
     await session.refresh(job)
@@ -133,9 +153,9 @@ async def start_extraction(
     if not bg_func:
         raise HTTPException(status_code=400, detail=f"Unknown stage: {stage}")
 
-    background_tasks.add_task(bg_func, collection_id, job.id)
+    background_tasks.add_task(bg_func, collection_id, job.id, max_pages)
 
-    return {"job_id": str(job.id), "stage": stage, "status": "started"}
+    return {"job_id": str(job.id), "stage": stage, "status": "started", "max_pages": effective_pages}
 
 
 @router.get("/{collection_id}/jobs")
