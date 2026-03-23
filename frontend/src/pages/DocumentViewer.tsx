@@ -57,6 +57,9 @@ export default function DocumentViewer() {
     navigate(`/viewer/${collectionId}/${n}`);
   };
 
+  const [extracting, setExtracting] = useState(false);
+  const [extractStatus, setExtractStatus] = useState<string | null>(null);
+
   const totalPages = collection?.page_count ?? 1;
   const canPrev = pageNum > 1;
   const canNext = pageNum < totalPages;
@@ -76,9 +79,6 @@ export default function DocumentViewer() {
       </div>
     );
   }
-
-  const [extracting, setExtracting] = useState(false);
-  const [extractStatus, setExtractStatus] = useState<string | null>(null);
 
   const startExtraction = async () => {
     if (!collectionId) return;
