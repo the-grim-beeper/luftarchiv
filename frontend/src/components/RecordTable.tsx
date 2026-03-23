@@ -3,13 +3,20 @@ import { Link } from 'react-router-dom';
 
 interface SearchRecord {
   id: string;
-  entry_number?: string | number;
+  entry_number?: number;
   date?: string;
-  unit?: string;
-  aircraft?: string;
+  unit_designation?: string;
+  aircraft_type?: string;
   incident_type?: string;
-  damage_level?: number;
-  personnel?: Array<{ name?: string; fate?: string }>;
+  damage_percentage?: number;
+  location?: string;
+  werknummer?: string;
+  personnel?: Array<{
+    rank_abbreviation?: string;
+    surname?: string;
+    first_name?: string;
+    fate_english?: string;
+  }>;
   page_id?: string;
   collection_id?: string;
   page_number?: number;
@@ -17,12 +24,16 @@ interface SearchRecord {
 
 interface RecordTableProps {
   records: SearchRecord[];
+  total: number;
+  page: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
 }
 
-type SortKey = 'date' | 'unit' | 'aircraft' | 'incident_type';
+type SortKey = 'date' | 'unit_designation' | 'aircraft_type' | 'incident_type';
 
 function DamageBar({ level }: { level?: number }) {
-  if (level === undefined || level === null) return <span className="text-slate-ink/30">—</span>;
+  if (level === undefined || level === null) return <span className="text-slate-ink/20">—</span>;
   const pct = Math.min(100, Math.max(0, level));
   const color = pct >= 75 ? 'bg-red-500' : pct >= 40 ? 'bg-amber-500' : 'bg-emerald-500';
   return (
@@ -35,7 +46,7 @@ function DamageBar({ level }: { level?: number }) {
   );
 }
 
-export default function RecordTable({ records }: RecordTableProps) {
+export default function RecordTable({ records, total, page, pageSize, onPageChange }: RecordTableProps) {
   const [sortKey, setSortKey] = useState<SortKey>('date');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
@@ -68,80 +79,139 @@ export default function RecordTable({ records }: RecordTableProps) {
     </span>
   );
 
-  const Th = ({
-    children,
-    sortable,
-    k,
-  }: {
-    children: React.ReactNode;
-    sortable?: boolean;
-    k?: SortKey;
-  }) => (
-    <th
-      onClick={sortable && k ? () => toggleSort(k) : undefined}
-      className={`px-3 py-2.5 text-left font-body text-xs font-semibold text-slate-ink/50 uppercase tracking-wide whitespace-nowrap ${
-        sortable ? 'cursor-pointer hover:text-archive-amber select-none' : ''
-      }`}
-    >
-      {children}
-      {sortable && k && <SortIcon k={k} />}
-    </th>
-  );
+  const totalPages = Math.ceil(total / pageSize);
+
+  const personnelStr = (r: SearchRecord) => {
+    if (!r.personnel || r.personnel.length === 0) return '—';
+    return r.personnel
+      .map((p) => [p.rank_abbreviation, p.surname].filter(Boolean).join(' '))
+      .filter(Boolean)
+      .join(', ') || '—';
+  };
+
+  const viewerLink = (r: SearchRecord) => {
+    if (r.collection_id && r.page_number) {
+      return `/viewer/${r.collection_id}/${r.page_number}`;
+    }
+    return '#';
+  };
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-parchment">
-      <table className="w-full border-collapse">
-        <thead>
-          <tr className="bg-parchment/50 border-b border-parchment">
-            <Th>#</Th>
-            <Th sortable k="date">Date</Th>
-            <Th sortable k="unit">Unit</Th>
-            <Th sortable k="aircraft">Aircraft</Th>
-            <Th sortable k="incident_type">Incident</Th>
-            <Th>Damage</Th>
-            <Th>Personnel</Th>
-            <Th>Source</Th>
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((r, i) => (
-            <tr
-              key={r.id}
-              className={`border-b border-parchment/50 hover:bg-ivory/60 transition-colors ${
-                i % 2 === 0 ? 'bg-white' : 'bg-ivory/30'
-              }`}
-            >
-              <td className="px-3 py-2 font-mono text-xs text-slate-ink/40">
-                {r.entry_number ?? i + 1}
-              </td>
-              <td className="px-3 py-2 font-body text-xs text-slate-ink/80 whitespace-nowrap">
-                {r.date ?? '—'}
-              </td>
-              <td className="px-3 py-2 font-body text-xs text-slate-ink/80">{r.unit ?? '—'}</td>
-              <td className="px-3 py-2 font-body text-xs text-slate-ink/80">{r.aircraft ?? '—'}</td>
-              <td className="px-3 py-2 font-body text-xs text-slate-ink/80">
-                {r.incident_type ?? '—'}
-              </td>
-              <td className="px-3 py-2">
-                <DamageBar level={r.damage_level} />
-              </td>
-              <td className="px-3 py-2 font-body text-xs text-slate-ink/70 max-w-[12rem]">
-                {r.personnel && r.personnel.length > 0
-                  ? r.personnel.map((p) => p.name ?? '').filter(Boolean).join(', ') || '—'
-                  : '—'}
-              </td>
-              <td className="px-3 py-2">
-                <Link
-                  to={`/viewer/${r.page_id}`}
-                  className="font-body text-xs text-archive-amber hover:underline"
-                >
-                  View
-                </Link>
-              </td>
+    <div>
+      <div className="overflow-x-auto rounded-lg border border-parchment">
+        <table className="w-full border-collapse">
+          <thead>
+            <tr className="bg-parchment/50 border-b border-parchment">
+              <th className="px-3 py-2.5 text-left font-body text-xs font-semibold text-slate-ink/50 uppercase tracking-wide">#</th>
+              <th onClick={() => toggleSort('date')} className="px-3 py-2.5 text-left font-body text-xs font-semibold text-slate-ink/50 uppercase tracking-wide cursor-pointer hover:text-archive-amber select-none whitespace-nowrap">
+                Date<SortIcon k="date" />
+              </th>
+              <th onClick={() => toggleSort('unit_designation')} className="px-3 py-2.5 text-left font-body text-xs font-semibold text-slate-ink/50 uppercase tracking-wide cursor-pointer hover:text-archive-amber select-none whitespace-nowrap">
+                Unit<SortIcon k="unit_designation" />
+              </th>
+              <th onClick={() => toggleSort('aircraft_type')} className="px-3 py-2.5 text-left font-body text-xs font-semibold text-slate-ink/50 uppercase tracking-wide cursor-pointer hover:text-archive-amber select-none whitespace-nowrap">
+                Aircraft<SortIcon k="aircraft_type" />
+              </th>
+              <th onClick={() => toggleSort('incident_type')} className="px-3 py-2.5 text-left font-body text-xs font-semibold text-slate-ink/50 uppercase tracking-wide cursor-pointer hover:text-archive-amber select-none whitespace-nowrap">
+                Incident<SortIcon k="incident_type" />
+              </th>
+              <th className="px-3 py-2.5 text-left font-body text-xs font-semibold text-slate-ink/50 uppercase tracking-wide">Damage</th>
+              <th className="px-3 py-2.5 text-left font-body text-xs font-semibold text-slate-ink/50 uppercase tracking-wide">Personnel</th>
+              <th className="px-3 py-2.5 text-left font-body text-xs font-semibold text-slate-ink/50 uppercase tracking-wide">Page</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {sorted.map((r, i) => (
+              <tr
+                key={r.id}
+                className={`border-b border-parchment/50 hover:bg-ivory/60 transition-colors ${
+                  i % 2 === 0 ? 'bg-white' : 'bg-ivory/30'
+                }`}
+              >
+                <td className="px-3 py-2 font-mono text-xs text-slate-ink/40">
+                  {r.entry_number ?? ''}
+                </td>
+                <td className="px-3 py-2 font-body text-xs text-slate-ink/80 whitespace-nowrap">
+                  {r.date ?? '—'}
+                </td>
+                <td className="px-3 py-2 font-body text-xs text-slate-ink font-medium max-w-[10rem] truncate">
+                  {r.unit_designation ?? '—'}
+                </td>
+                <td className="px-3 py-2 font-body text-xs text-slate-ink/80">
+                  {r.aircraft_type ?? '—'}
+                </td>
+                <td className="px-3 py-2 font-body text-xs text-slate-ink/70 italic max-w-[14rem] truncate">
+                  {r.incident_type ?? '—'}
+                </td>
+                <td className="px-3 py-2">
+                  <DamageBar level={r.damage_percentage} />
+                </td>
+                <td className="px-3 py-2 font-body text-xs text-slate-ink/70 max-w-[10rem] truncate">
+                  {personnelStr(r)}
+                </td>
+                <td className="px-3 py-2">
+                  <Link
+                    to={viewerLink(r)}
+                    className="font-mono text-xs text-archive-amber hover:underline"
+                  >
+                    p.{r.page_number ?? '?'}
+                  </Link>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between mt-4">
+          <span className="font-body text-xs text-slate-ink/50">
+            Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total} results
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => onPageChange(page - 1)}
+              disabled={page <= 1}
+              className="px-3 h-7 rounded border border-parchment font-body text-xs text-slate-ink/60 hover:border-archive-amber hover:text-archive-amber transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              Previous
+            </button>
+            {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+              let p: number;
+              if (totalPages <= 7) {
+                p = i + 1;
+              } else if (page <= 4) {
+                p = i + 1;
+              } else if (page >= totalPages - 3) {
+                p = totalPages - 6 + i;
+              } else {
+                p = page - 3 + i;
+              }
+              return (
+                <button
+                  key={p}
+                  onClick={() => onPageChange(p)}
+                  className={`w-7 h-7 rounded font-mono text-xs transition-colors ${
+                    p === page
+                      ? 'bg-archive-amber text-white'
+                      : 'border border-parchment text-slate-ink/60 hover:border-archive-amber hover:text-archive-amber'
+                  }`}
+                >
+                  {p}
+                </button>
+              );
+            })}
+            <button
+              onClick={() => onPageChange(page + 1)}
+              disabled={page >= totalPages}
+              className="px-3 h-7 rounded border border-parchment font-body text-xs text-slate-ink/60 hover:border-archive-amber hover:text-archive-amber transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

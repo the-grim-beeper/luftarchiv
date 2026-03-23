@@ -3,23 +3,41 @@ import { api } from '../api/client';
 import SearchBar from '../components/SearchBar';
 import RecordTable from '../components/RecordTable';
 
+const PAGE_SIZE = 50;
+
 export default function Search() {
   const [results, setResults] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [lastFilters, setLastFilters] = useState<any>(null);
 
-  const handleSearch = (filters: any) => {
+  const doSearch = (filters: any, page: number = 1) => {
     setLoading(true);
     setError(null);
+    const searchPayload = {
+      ...filters,
+      limit: PAGE_SIZE,
+      offset: (page - 1) * PAGE_SIZE,
+    };
     api
-      .search(filters)
+      .search(searchPayload)
       .then((data) => {
-        setResults(Array.isArray(data) ? data : data.records ?? data.results ?? []);
+        setResults(data.records ?? data.results ?? []);
+        setTotal(data.total ?? 0);
         setSearched(true);
+        setCurrentPage(page);
+        setLastFilters(filters);
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
+  };
+
+  const handleSearch = (filters: any) => doSearch(filters, 1);
+  const handlePageChange = (page: number) => {
+    if (lastFilters) doSearch(lastFilters, page);
   };
 
   return (
@@ -27,7 +45,7 @@ export default function Search() {
       <div className="mb-6">
         <h2 className="font-heading text-3xl font-bold text-slate-ink mb-1">Search</h2>
         <p className="font-body text-slate-ink/50 text-sm">
-          Full-text search across all extracted records.
+          Search across all extracted records. Use filters for precise queries.
         </p>
       </div>
 
@@ -38,16 +56,22 @@ export default function Search() {
       )}
 
       {searched && !loading && (
-        <div className="mb-3 flex items-center gap-2">
+        <div className="mb-3">
           <span className="font-body text-sm text-slate-ink/50">
-            {results.length === 0
-              ? 'No results'
-              : `${results.length} result${results.length === 1 ? '' : 's'}`}
+            {total === 0 ? 'No results' : `${total} result${total === 1 ? '' : 's'}`}
           </span>
         </div>
       )}
 
-      {searched && <RecordTable records={results} />}
+      {searched && (
+        <RecordTable
+          records={results}
+          total={total}
+          page={currentPage}
+          pageSize={PAGE_SIZE}
+          onPageChange={handlePageChange}
+        />
+      )}
 
       {!searched && !loading && (
         <div className="border border-dashed border-parchment rounded-lg py-20 text-center">

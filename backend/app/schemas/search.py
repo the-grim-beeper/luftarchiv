@@ -19,7 +19,7 @@ class SearchFilters(BaseModel):
     mode: str = "direct"  # "direct" | "semantic" | "analytical"
 
     # Pagination
-    limit: int = 20
+    limit: int = 50
     offset: int = 0
 
 
@@ -45,6 +45,10 @@ class RecordResult(BaseModel):
     incident_description: str | None
     damage_percentage: int | None
     location: str | None
+    entry_number: int | None = None
+    page_id: uuid.UUID | None = None
+    collection_id: uuid.UUID | None = None
+    page_number: int | None = None
     personnel: list[PersonnelResult]
     created_at: datetime
 
