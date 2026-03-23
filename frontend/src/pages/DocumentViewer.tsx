@@ -58,7 +58,51 @@ export default function DocumentViewer() {
   };
 
   const [extracting, setExtracting] = useState(false);
-  const [extractStatus, setExtractStatus] = useState<string | null>(null);
+  const [extractJob, setExtractJob] = useState<{
+    status: string;
+    processed_pages: number;
+    total_pages: number;
+    error_message?: string;
+  } | null>(null);
+
+  // Check for active extraction jobs on mount and poll while running
+  useEffect(() => {
+    if (!collectionId) return;
+    let interval: ReturnType<typeof setInterval> | null = null;
+
+    const checkJobs = async () => {
+      try {
+        const res = await fetch(`/api/collections/${collectionId}/jobs`);
+        const jobs = await res.json();
+        const active = jobs.find((j: any) => j.stage === 'claude' && j.status === 'running');
+        const latest = jobs.find((j: any) => j.stage === 'claude');
+        if (active) {
+          setExtractJob(active);
+          setExtracting(true);
+          if (!interval) {
+            interval = setInterval(checkJobs, 3000);
+          }
+        } else if (latest && latest.status === 'completed' && extracting) {
+          setExtractJob(latest);
+          setExtracting(false);
+          if (interval) clearInterval(interval);
+          // Reload page data to show new records
+          fetch(`/api/collections/${collectionId}/pages/${pageNum}/records`)
+            .then((r) => r.json())
+            .then(setPageData);
+        } else if (latest && latest.status === 'failed') {
+          setExtractJob(latest);
+          setExtracting(false);
+          if (interval) clearInterval(interval);
+        } else {
+          setExtractJob(null);
+        }
+      } catch {}
+    };
+
+    checkJobs();
+    return () => { if (interval) clearInterval(interval); };
+  }, [collectionId, extracting]);
 
   const totalPages = collection?.page_count ?? 1;
   const canPrev = pageNum > 1;
@@ -83,12 +127,12 @@ export default function DocumentViewer() {
   const startExtraction = async () => {
     if (!collectionId) return;
     setExtracting(true);
-    setExtractStatus('Starting Claude extraction...');
     try {
       await api.startExtraction(collectionId, 'claude');
-      setExtractStatus('Extraction running in background. Records will appear as pages are processed. Refresh to check.');
+      setExtractJob({ status: 'running', processed_pages: 0, total_pages: totalPages });
     } catch (e: any) {
-      setExtractStatus(`Error: ${e.message}`);
+      setExtracting(false);
+      setExtractJob({ status: 'failed', processed_pages: 0, total_pages: 0, error_message: e.message });
     }
   };
 
@@ -142,16 +186,13 @@ export default function DocumentViewer() {
           </button>
         </div>
 
-        {records.length === 0 && !extracting && (
+        {records.length === 0 && !extracting && !extractJob && (
           <button
             onClick={startExtraction}
             className="px-3 h-8 flex items-center rounded bg-trust-ai text-white font-body text-sm hover:bg-indigo-600 transition-colors"
           >
             Extract with Claude
           </button>
-        )}
-        {extractStatus && (
-          <span className="font-body text-xs text-trust-ai max-w-xs truncate">{extractStatus}</span>
         )}
         {exportUrl && (
           <a
@@ -163,6 +204,53 @@ export default function DocumentViewer() {
           </a>
         )}
       </div>
+
+      {/* Extraction progress banner */}
+      {extractJob && extractJob.status === 'running' && (
+        <div className="mb-3 p-3 bg-indigo-50 border border-indigo-200 rounded-lg shrink-0">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="font-body text-sm text-indigo-700">
+              Extracting records with Claude...
+            </span>
+            <span className="font-mono text-xs text-indigo-600">
+              {extractJob.processed_pages} / {extractJob.total_pages} pages
+            </span>
+          </div>
+          <div className="h-2 bg-indigo-100 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-indigo-500 rounded-full transition-all duration-1000"
+              style={{
+                width: `${extractJob.total_pages > 0
+                  ? (extractJob.processed_pages / extractJob.total_pages) * 100
+                  : 0}%`,
+              }}
+            />
+          </div>
+          <p className="font-body text-xs text-indigo-500 mt-1.5">
+            Records appear as each page is processed. This page will update automatically.
+          </p>
+        </div>
+      )}
+      {extractJob && extractJob.status === 'failed' && (
+        <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg shrink-0">
+          <span className="font-body text-sm text-red-700">
+            Extraction failed: {extractJob.error_message || 'Unknown error'}
+          </span>
+          <button
+            onClick={startExtraction}
+            className="ml-3 px-2 h-6 rounded bg-red-600 text-white font-body text-xs hover:bg-red-700 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+      {extractJob && extractJob.status === 'completed' && extractJob.processed_pages > 0 && (
+        <div className="mb-3 p-2 bg-emerald-50 border border-emerald-200 rounded-lg shrink-0 flex items-center gap-2">
+          <span className="font-body text-sm text-emerald-700">
+            Extraction complete — {extractJob.processed_pages} pages processed.
+          </span>
+        </div>
+      )}
 
       {/* Split pane */}
       <div className="flex gap-4 flex-1 overflow-hidden">

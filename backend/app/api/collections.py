@@ -90,6 +90,28 @@ async def start_extraction(
     return {"job_id": str(job.id), "stage": stage, "status": "started"}
 
 
+@router.get("/{collection_id}/jobs")
+async def list_jobs(collection_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
+    """List pipeline jobs for a collection, most recent first."""
+    result = await session.execute(
+        select(PipelineJob)
+        .where(PipelineJob.collection_id == collection_id)
+        .order_by(PipelineJob.started_at.desc().nulls_last())
+    )
+    jobs = result.scalars().all()
+    return [
+        {
+            "id": str(j.id),
+            "stage": j.stage,
+            "status": j.status,
+            "total_pages": j.total_pages,
+            "processed_pages": j.processed_pages,
+            "error_message": j.error_message,
+        }
+        for j in jobs
+    ]
+
+
 @router.get("/{collection_id}/pages")
 async def list_pages(collection_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
     result = await session.execute(
