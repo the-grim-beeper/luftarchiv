@@ -142,10 +142,15 @@ async def _call_claude(image_path: str | Path, prompt: str) -> dict:
     with open(image_path, "rb") as f:
         image_data = base64.standard_b64encode(f.read()).decode("utf-8")
 
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    from app.services.llm_config import load_config
+    config = load_config()
+    api_key = config.api_key or settings.anthropic_api_key
+    model = config.effective_model if config.provider == "claude" else _MODEL
+
+    client = anthropic.AsyncAnthropic(api_key=api_key)
 
     message = await client.messages.create(
-        model=_MODEL,
+        model=model,
         max_tokens=_MAX_TOKENS,
         system=_SYSTEM_PROMPT,
         messages=[

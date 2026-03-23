@@ -76,8 +76,21 @@ async def run_kraken_stage(session: AsyncSession, collection_id: uuid.UUID, job_
 
 
 async def run_claude_stage(session: AsyncSession, collection_id: uuid.UUID, job_id: uuid.UUID):
-    """Run Claude extraction on pages that don't already have records."""
-    from app.services.ocr_claude import extract_records_from_page
+    """Run LLM extraction on pages that don't already have records."""
+    from app.services.llm_config import load_config
+
+    config = load_config()
+    if config.provider == "ollama":
+        from app.services.ocr_ollama import extract_records_from_page
+    elif config.provider == "none":
+        # Skip extraction entirely
+        job = await session.get(PipelineJob, job_id)
+        job.status = "completed"
+        job.completed_at = datetime.now(timezone.utc)
+        await session.commit()
+        return
+    else:
+        from app.services.ocr_claude import extract_records_from_page
 
     job = await session.get(PipelineJob, job_id)
     job.status = "running"

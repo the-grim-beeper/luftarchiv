@@ -4,6 +4,7 @@ import DocumentViewer from './pages/DocumentViewer';
 import Search from './pages/Search';
 import Knowledge from './pages/Knowledge';
 import Analytics from './pages/Analytics';
+import Settings from './pages/Settings';
 
 function App() {
   return (
@@ -20,6 +21,7 @@ function App() {
                 ['/search', 'Search'],
                 ['/knowledge', 'Knowledge'],
                 ['/analytics', 'Analytics'],
+                ['/settings', 'Settings'],
               ].map(([path, label]) => (
                 <NavLink
                   key={path}
@@ -47,6 +49,7 @@ function App() {
             <Route path="/search" element={<Search />} />
             <Route path="/knowledge" element={<Knowledge />} />
             <Route path="/analytics" element={<Analytics />} />
+            <Route path="/settings" element={<Settings />} />
           </Routes>
         </main>
       </div>
