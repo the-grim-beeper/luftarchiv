@@ -18,7 +18,7 @@ from app.config import settings
 # ---------------------------------------------------------------------------
 
 _MODEL = "claude-sonnet-4-20250514"
-_MAX_TOKENS = 4096
+_MAX_TOKENS = 8192
 
 _SYSTEM_PROMPT = """You are an expert at reading and interpreting German Luftwaffe loss reports (Verlustmeldungen) from World War II.
 
@@ -191,10 +191,37 @@ async def _call_claude(image_path: str | Path, prompt: str) -> dict:
 
     try:
         return json.loads(stripped)
-    except json.JSONDecodeError as exc:
+    except json.JSONDecodeError:
+        # Response may be truncated (hit max_tokens). Try to repair by
+        # closing open brackets/braces and extracting what we can.
+        repaired = _try_repair_json(stripped)
+        if repaired is not None:
+            return repaired
         raise ValueError(
             f"Claude returned non-JSON response: {raw_text[:500]!r}"
-        ) from exc
+        )
+
+
+def _try_repair_json(text: str) -> dict | None:
+    """Attempt to repair truncated JSON by closing open structures."""
+    # Find the records array start and try to close it
+    if '"records"' not in text:
+        return None
+
+    # Try progressively trimming from the end and closing brackets
+    for trim in range(0, min(len(text), 500), 10):
+        candidate = text[: len(text) - trim] if trim else text
+        # Close any open structures
+        opens = candidate.count("{") - candidate.count("}")
+        open_brackets = candidate.count("[") - candidate.count("]")
+        repaired = candidate + "}" * max(opens, 0) + "]" * max(open_brackets, 0)
+        try:
+            result = json.loads(repaired)
+            if "records" in result:
+                return result
+        except json.JSONDecodeError:
+            continue
+    return None
 
 
 # ---------------------------------------------------------------------------
