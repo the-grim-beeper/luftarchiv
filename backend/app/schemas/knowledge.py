@@ -11,7 +11,7 @@ class GlossaryCreate(BaseModel):
     definition: str | None = None
     category: str | None = None
     language: str | None = "de"
-    trust_level: int = 0
+    trust_level: str = "ai_suggested"
     source: str | None = None
 
 
@@ -21,7 +21,7 @@ class GlossaryResponse(BaseModel):
     definition: str | None
     category: str | None
     language: str | None
-    trust_level: int
+    trust_level: str
     source: str | None
     proposed_by: uuid.UUID | None
     verified_by: uuid.UUID | None
@@ -45,8 +45,8 @@ class ReviewResponse(BaseModel):
     entity_type: str
     entity_id: uuid.UUID
     action: str
-    old_trust_level: int | None
-    new_trust_level: int | None
+    old_trust_level: str | None
+    new_trust_level: str | None
     reviewer: uuid.UUID | None
     reason: str | None
     reviewed_at: datetime
@@ -61,7 +61,7 @@ class UnitCreate(BaseModel):
     full_name: str | None = None
     unit_type: str | None = None
     notes: str | None = None
-    trust_level: int = 0
+    trust_level: str = "ai_suggested"
 
 
 class UnitResponse(BaseModel):
@@ -70,7 +70,7 @@ class UnitResponse(BaseModel):
     full_name: str | None
     unit_type: str | None
     notes: str | None
-    trust_level: int
+    trust_level: str
 
     model_config = {"from_attributes": True}
 
@@ -87,7 +87,7 @@ class AircraftCreate(BaseModel):
     manufacturer: str | None = None
     common_name: str | None = None
     variants: list[str] | None = None
-    trust_level: int = 0
+    trust_level: str = "ai_suggested"
 
 
 class AircraftResponse(BaseModel):
@@ -96,7 +96,7 @@ class AircraftResponse(BaseModel):
     manufacturer: str | None
     common_name: str | None
     variants: list | None
-    trust_level: int
+    trust_level: str
 
     model_config = {"from_attributes": True}
 

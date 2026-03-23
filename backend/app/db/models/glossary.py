@@ -20,7 +20,7 @@ class Glossary(Base):
     definition: Mapped[str | None] = mapped_column(Text, nullable=True)
     category: Mapped[str | None] = mapped_column(String(100), nullable=True)
     language: Mapped[str | None] = mapped_column(String(10), nullable=True)
-    trust_level: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    trust_level: Mapped[str] = mapped_column(String(50), nullable=False, default="ai_suggested")
     source: Mapped[str | None] = mapped_column(String(500), nullable=True)
     proposed_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),

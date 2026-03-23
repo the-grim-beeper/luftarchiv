@@ -15,7 +15,7 @@ export default function Search() {
     api
       .search(filters)
       .then((data) => {
-        setResults(Array.isArray(data) ? data : data.results ?? []);
+        setResults(Array.isArray(data) ? data : data.records ?? data.results ?? []);
         setSearched(true);
       })
       .catch((e: Error) => setError(e.message))

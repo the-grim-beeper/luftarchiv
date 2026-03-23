@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel
 
@@ -13,6 +13,7 @@ class SearchFilters(BaseModel):
     date_to: str | None = None
     personnel_name: str | None = None
     free_text: str | None = None
+    query: str | None = None  # alias for free_text from frontend
 
     # Search mode
     mode: str = "direct"  # "direct" | "semantic" | "analytical"
@@ -36,13 +37,13 @@ class PersonnelResult(BaseModel):
 
 class RecordResult(BaseModel):
     id: uuid.UUID
-    date: str | None
+    date: date | None
     unit_designation: str | None
     aircraft_type: str | None
     werknummer: str | None
     incident_type: str | None
     incident_description: str | None
-    damage_percentage: str | None
+    damage_percentage: int | None
     location: str | None
     personnel: list[PersonnelResult]
     created_at: datetime

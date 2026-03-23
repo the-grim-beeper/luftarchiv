@@ -18,4 +18,4 @@ class AircraftType(Base):
     manufacturer: Mapped[str | None] = mapped_column(String(255), nullable=True)
     common_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     variants: Mapped[list | None] = mapped_column(JSONB, nullable=True)
-    trust_level: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    trust_level: Mapped[str] = mapped_column(String(50), nullable=False, default="ai_suggested")

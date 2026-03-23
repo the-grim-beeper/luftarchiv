@@ -1,15 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { api } from '../api/client';
 
-interface GlossaryTerm {
+interface GlossaryEntry {
   id: string;
   term: string;
   definition: string;
   category?: string;
-  trust_level?: 'verified' | 'proposed' | 'ai_suggested' | string;
+  trust_level?: string;
 }
 
 interface KnowledgePanelProps {
-  terms: GlossaryTerm[];
+  terms: string[];
 }
 
 const TRUST_STYLES: Record<string, string> = {
@@ -31,6 +32,23 @@ function TrustBadge({ level }: { level: string }) {
 
 export default function KnowledgePanel({ terms }: KnowledgePanelProps) {
   const [open, setOpen] = useState(false);
+  const [entries, setEntries] = useState<GlossaryEntry[]>([]);
+
+  useEffect(() => {
+    if (terms.length === 0) {
+      setEntries([]);
+      return;
+    }
+    // Fetch all glossary entries and filter to matching terms
+    api.listGlossary().then((data: any) => {
+      const allEntries: GlossaryEntry[] = data.items ?? data.entries ?? data ?? [];
+      const termLower = new Set(terms.map((t) => t.toLowerCase()));
+      const matched = allEntries.filter((e) => termLower.has(e.term.toLowerCase()));
+      setEntries(matched);
+    });
+  }, [terms.join(',')]);
+
+  const count = entries.length;
 
   return (
     <div className="border-t border-parchment bg-white">
@@ -39,7 +57,7 @@ export default function KnowledgePanel({ terms }: KnowledgePanelProps) {
         className="w-full flex items-center justify-between px-5 py-3 hover:bg-ivory/50 transition-colors"
       >
         <span className="font-body text-sm font-medium text-slate-ink/70">
-          Glossary — {terms.length} {terms.length === 1 ? 'term' : 'terms'} on this page
+          Glossary — {count} {count === 1 ? 'term' : 'terms'} on this page
         </span>
         <span className="font-mono text-xs text-slate-ink/40 select-none">
           {open ? '▲' : '▼'}
@@ -48,19 +66,19 @@ export default function KnowledgePanel({ terms }: KnowledgePanelProps) {
 
       {open && (
         <div className="px-5 pb-4 max-h-48 overflow-y-auto">
-          {terms.length === 0 ? (
+          {entries.length === 0 ? (
             <p className="font-body text-xs text-slate-ink/40 py-2">
               No glossary terms matched for this page.
             </p>
           ) : (
-            <div className="space-y-2">
-              {terms.map((t) => (
-                <div key={t.id} className="flex items-start gap-3">
-                  <span className="font-mono text-xs text-archive-amber font-semibold w-20 shrink-0 mt-0.5">
-                    {t.term}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
+              {entries.map((e) => (
+                <div key={e.id} className="flex items-start gap-3">
+                  <span className="font-mono text-xs text-archive-amber font-semibold shrink-0 mt-0.5">
+                    {e.term}
                   </span>
-                  <span className="font-body text-xs text-slate-ink/70 flex-1">{t.definition}</span>
-                  {t.trust_level && <TrustBadge level={t.trust_level} />}
+                  <span className="font-body text-xs text-slate-ink/70 flex-1">{e.definition}</span>
+                  {e.trust_level && <TrustBadge level={e.trust_level} />}
                 </div>
               ))}
             </div>

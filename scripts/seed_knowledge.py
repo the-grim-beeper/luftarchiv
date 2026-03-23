@@ -65,7 +65,7 @@ async def load_glossary(session: AsyncSession) -> None:
                 definition=row["definition"].strip() or None,
                 category=row["category"].strip() or None,
                 language="de",
-                trust_level=2,
+                trust_level="verified",
                 source="glossary-seed.csv",
                 proposed_by=ADMIN_UUID,
                 verified_by=ADMIN_UUID,

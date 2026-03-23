@@ -21,4 +21,4 @@ class DocumentSchema(Base):
     example_collection_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )
-    trust_level: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    trust_level: Mapped[str] = mapped_column(String(50), nullable=False, default="ai_suggested")

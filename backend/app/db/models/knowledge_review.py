@@ -18,8 +18,8 @@ class KnowledgeReview(Base):
     entity_type: Mapped[str] = mapped_column(String(100), nullable=False)
     entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     action: Mapped[str] = mapped_column(String(100), nullable=False)
-    old_trust_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    new_trust_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    old_trust_level: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    new_trust_level: Mapped[str | None] = mapped_column(String(50), nullable=True)
     reviewer: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("archive_data.users.id", ondelete="SET NULL"),

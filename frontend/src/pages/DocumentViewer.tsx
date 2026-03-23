@@ -5,19 +5,15 @@ import ScanViewer from '../components/ScanViewer';
 import RecordCard from '../components/RecordCard';
 import KnowledgePanel from '../components/KnowledgePanel';
 
-interface PageData {
-  id: string;
-  page_number: number;
-  image_path?: string;
-  records?: any[];
-  glossary_terms?: any[];
-}
-
 interface CollectionData {
   id: string;
   name: string;
   page_count: number;
-  pages?: PageData[];
+}
+
+interface PageRecordsData {
+  page: { id: string; image_path: string; page_number: number };
+  records: any[];
 }
 
 export default function DocumentViewer() {
@@ -28,25 +24,30 @@ export default function DocumentViewer() {
   const navigate = useNavigate();
 
   const [collection, setCollection] = useState<CollectionData | null>(null);
-  const [currentPage, setCurrentPage] = useState<PageData | null>(null);
+  const [pageData, setPageData] = useState<PageRecordsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const pageNum = pageNumber ? parseInt(pageNumber, 10) : 1;
 
+  // Fetch collection info
+  useEffect(() => {
+    if (!collectionId) return;
+    api.getCollection(collectionId).then(setCollection).catch((e: Error) => setError(e.message));
+  }, [collectionId]);
+
+  // Fetch page records
   useEffect(() => {
     if (!collectionId) return;
     setLoading(true);
-    api
-      .getCollection(collectionId)
-      .then((data: CollectionData) => {
-        setCollection(data);
-        // Find the page matching the current page number
-        const page =
-          data.pages?.find((p) => p.page_number === pageNum) ??
-          data.pages?.[pageNum - 1] ??
-          null;
-        setCurrentPage(page);
+    setPageData(null);
+    fetch(`/api/collections/${collectionId}/pages/${pageNum}/records`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`Page not found: ${r.status}`);
+        return r.json();
+      })
+      .then((data: PageRecordsData) => {
+        setPageData(data);
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
@@ -60,10 +61,10 @@ export default function DocumentViewer() {
   const canPrev = pageNum > 1;
   const canNext = pageNum < totalPages;
 
-  if (loading) {
+  if (loading && !collection) {
     return (
       <div className="flex items-center justify-center py-24">
-        <p className="font-body text-slate-ink/40 text-sm">Loading document…</p>
+        <p className="font-body text-slate-ink/40 text-sm">Loading document...</p>
       </div>
     );
   }
@@ -77,6 +78,19 @@ export default function DocumentViewer() {
   }
 
   const exportUrl = collectionId ? api.exportCsv(collectionId) : null;
+  const imagePath = pageData?.page?.image_path ?? null;
+  const records = pageData?.records ?? [];
+
+  // Extract terms from records for glossary panel
+  const terms = [
+    ...new Set(
+      records.flatMap((r: any) => [
+        r.incident_type,
+        r.unit_designation,
+        ...(r.personnel ?? []).map((p: any) => p.rank_abbreviation),
+      ].filter(Boolean))
+    ),
+  ];
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 8rem)' }}>
@@ -84,7 +98,7 @@ export default function DocumentViewer() {
       <div className="flex items-center gap-4 mb-4 flex-wrap shrink-0">
         <Link
           to="/"
-          className="font-body text-sm text-slate-ink/50 hover:text-archive-amber transition-colors flex items-center gap-1"
+          className="font-body text-sm text-slate-ink/50 hover:text-archive-amber transition-colors"
         >
           ← Collections
         </Link>
@@ -93,7 +107,6 @@ export default function DocumentViewer() {
           {collection?.name ?? collectionId}
         </h2>
 
-        {/* Page navigation */}
         <div className="flex items-center gap-2">
           <button
             onClick={() => goToPage(pageNum - 1)}
@@ -129,28 +142,30 @@ export default function DocumentViewer() {
       <div className="flex gap-4 flex-1 overflow-hidden">
         {/* Left: scan viewer */}
         <div className="flex-1 overflow-hidden border border-parchment rounded-lg bg-white flex flex-col">
-          <ScanViewer imagePath={currentPage?.image_path ?? null} />
+          <ScanViewer imagePath={imagePath} />
         </div>
 
         {/* Right: record cards */}
         <div className="w-96 shrink-0 overflow-y-auto">
-          {!currentPage?.records || currentPage.records.length === 0 ? (
+          {records.length === 0 ? (
             <div className="border border-dashed border-parchment rounded-lg p-6 text-center">
               <p className="font-body text-sm text-slate-ink/40">
-                No records extracted for this page yet.
+                {loading ? 'Loading...' : 'No records extracted for this page yet.'}
               </p>
             </div>
           ) : (
-            currentPage.records.map((r: any) => (
-              <RecordCard key={r.id} record={r} />
-            ))
+            <div className="space-y-3">
+              {records.map((r: any) => (
+                <RecordCard key={r.id} record={r} />
+              ))}
+            </div>
           )}
         </div>
       </div>
 
       {/* Bottom: knowledge panel */}
       <div className="shrink-0 mt-2 border border-parchment rounded-lg overflow-hidden">
-        <KnowledgePanel terms={currentPage?.glossary_terms ?? []} />
+        <KnowledgePanel terms={terms} />
       </div>
     </div>
   );

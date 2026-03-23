@@ -67,7 +67,7 @@ async def run_claude_stage(session: AsyncSession, collection_id: uuid.UUID, job_
 
     result = await session.execute(
         select(Page)
-        .where(Page.collection_id == collection_id, Page.ocr_status == "extracted")
+        .where(Page.collection_id == collection_id, Page.ocr_status.in_(["extracted", "pending"]))
         .order_by(Page.page_number)
     )
     pages = result.scalars().all()

@@ -1,11 +1,15 @@
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
+from app.config import settings
 from app.db.database import get_session
-from app.db.models import Collection, Page, PipelineJob
+from app.db.models import Collection, Page, PipelineJob, Record
 from app.schemas.collection import CollectionCreate, CollectionList, CollectionResponse
 from app.services.extraction import (
     run_claude_stage_background,
@@ -84,3 +88,69 @@ async def start_extraction(
     background_tasks.add_task(bg_func, collection_id, job.id)
 
     return {"job_id": str(job.id), "stage": stage, "status": "started"}
+
+
+@router.get("/{collection_id}/pages")
+async def list_pages(collection_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
+    result = await session.execute(
+        select(Page).where(Page.collection_id == collection_id).order_by(Page.page_number)
+    )
+    pages = result.scalars().all()
+    return [{"id": str(p.id), "page_number": p.page_number, "ocr_status": p.ocr_status} for p in pages]
+
+
+@router.get("/{collection_id}/pages/{page_number}/records")
+async def get_page_records(collection_id: uuid.UUID, page_number: int, session: AsyncSession = Depends(get_session)):
+    page_result = await session.execute(
+        select(Page).where(Page.collection_id == collection_id, Page.page_number == page_number)
+    )
+    page = page_result.scalar_one_or_none()
+    if not page:
+        raise HTTPException(status_code=404, detail="Page not found")
+
+    records_result = await session.execute(
+        select(Record)
+        .where(Record.page_id == page.id)
+        .options(selectinload(Record.personnel))
+        .order_by(Record.entry_number)
+    )
+    records = records_result.scalars().all()
+
+    return {
+        "page": {"id": str(page.id), "image_path": page.image_path, "page_number": page.page_number},
+        "records": [
+            {
+                "id": str(r.id),
+                "entry_number": r.entry_number,
+                "date": str(r.date) if r.date else None,
+                "unit_designation": r.unit_designation,
+                "aircraft_type": r.aircraft_type,
+                "werknummer": r.werknummer,
+                "incident_type": r.incident_type,
+                "damage_percentage": r.damage_percentage,
+                "personnel": [
+                    {
+                        "rank_abbreviation": p.rank_abbreviation,
+                        "surname": p.surname,
+                        "first_name": p.first_name,
+                        "fate_english": p.fate_english,
+                    }
+                    for p in r.personnel
+                ],
+            }
+            for r in records
+        ],
+    }
+
+
+@router.get("/pages/image")
+async def serve_image(path: str):
+    image_path = Path(path).resolve()
+    # Allow images from storage path or any path that exists (local dev)
+    # TODO: In production, restrict to storage path only
+    allowed_root = Path(settings.image_storage_path).resolve()
+    if not str(image_path).startswith(str(allowed_root)) and not image_path.exists():
+        raise HTTPException(status_code=403, detail="Access denied")
+    if not image_path.exists():
+        raise HTTPException(status_code=404, detail="Image not found")
+    return FileResponse(image_path)

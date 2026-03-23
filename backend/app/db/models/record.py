@@ -1,8 +1,8 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -27,13 +27,13 @@ class Record(Base):
         nullable=True,
     )
     entry_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    date: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    date: Mapped[date | None] = mapped_column(Date, nullable=True)
     unit_designation: Mapped[str | None] = mapped_column(String(255), nullable=True)
     aircraft_type: Mapped[str | None] = mapped_column(String(255), nullable=True)
     werknummer: Mapped[str | None] = mapped_column(String(100), nullable=True)
     incident_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     incident_description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    damage_percentage: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    damage_percentage: Mapped[int | None] = mapped_column(Integer, nullable=True)
     location: Mapped[str | None] = mapped_column(String(500), nullable=True)
     raw_text_original: Mapped[str | None] = mapped_column(Text, nullable=True)
     bounding_boxes: Mapped[dict | None] = mapped_column(JSONB, nullable=True)

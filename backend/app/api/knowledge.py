@@ -25,17 +25,12 @@ router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
 ADMIN_UUID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
-# Trust level constants
-TRUST_VERIFIED = 2
-TRUST_UNVERIFIED = 1
-TRUST_REJECTED = -1
-
 
 # --- Glossary endpoints ---
 
 @router.get("/glossary", response_model=GlossaryList)
 async def list_glossary(
-    trust_level: int | None = Query(None, description="Filter by trust level"),
+    trust_level: str | None = Query(None, description="Filter by trust level"),
     category: str | None = Query(None, description="Filter by category"),
     session: AsyncSession = Depends(get_session),
 ):
@@ -92,16 +87,16 @@ async def review_glossary_entry(
     old_trust = entry.trust_level
 
     if action.action == "approve":
-        entry.trust_level = TRUST_VERIFIED
+        entry.trust_level = "verified"
         entry.verified_by = ADMIN_UUID
         entry.verified_at = datetime.now(timezone.utc)
-        new_trust = TRUST_VERIFIED
+        new_trust = "verified"
     elif action.action == "reject":
-        entry.trust_level = TRUST_REJECTED
-        new_trust = TRUST_REJECTED
+        entry.trust_level = "ai_suggested"
+        new_trust = "ai_suggested"
     else:  # demote
-        entry.trust_level = TRUST_UNVERIFIED
-        new_trust = TRUST_UNVERIFIED
+        entry.trust_level = "proposed"
+        new_trust = "proposed"
 
     review = KnowledgeReview(
         entity_type="glossary",

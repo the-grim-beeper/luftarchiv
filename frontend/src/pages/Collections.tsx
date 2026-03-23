@@ -66,7 +66,7 @@ export default function Collections() {
   useEffect(() => {
     api
       .listCollections()
-      .then((data) => setCollections(data))
+      .then((data) => setCollections(data.collections ?? data))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);

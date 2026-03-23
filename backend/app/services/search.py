@@ -36,13 +36,18 @@ async def direct_search(
         conditions.append(Record.date >= filters.date_from)
     if filters.date_to:
         conditions.append(Record.date <= filters.date_to)
-    if filters.free_text:
-        ft = f"%{filters.free_text}%"
+    free_text = filters.free_text or filters.query
+    if free_text:
+        ft = f"%{free_text}%"
         conditions.append(
             or_(
+                Record.unit_designation.ilike(ft),
+                Record.aircraft_type.ilike(ft),
+                Record.incident_type.ilike(ft),
                 Record.incident_description.ilike(ft),
                 Record.raw_text_original.ilike(ft),
                 Record.location.ilike(ft),
+                Record.werknummer.ilike(ft),
             )
         )
 

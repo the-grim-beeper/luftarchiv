@@ -25,7 +25,7 @@ class UnitDesignation(Base):
     active_from: Mapped[str | None] = mapped_column(Date, nullable=True)
     active_to: Mapped[str | None] = mapped_column(Date, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    trust_level: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    trust_level: Mapped[str] = mapped_column(String(50), nullable=False, default="ai_suggested")
 
     # Relationships
     parent_unit: Mapped["UnitDesignation | None"] = relationship(

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.db.database import Base, get_session
 from app.main import app
 
-TEST_DATABASE_URL = "postgresql+asyncpg://luftarchiv:luftarchiv_dev@localhost:5435/luftarchiv_test"
+TEST_DATABASE_URL = "postgresql+asyncpg://nicklaslundblad@localhost:5432/luftarchiv_test"
 
 engine = create_async_engine(TEST_DATABASE_URL)
 TestSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
