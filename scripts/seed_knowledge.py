@@ -25,7 +25,12 @@ from app.config import settings
 from app.db.models import Glossary, User
 
 ADMIN_UUID = uuid.UUID("00000000-0000-0000-0000-000000000001")
-SEED_CSV = Path(__file__).resolve().parents[1] / "docs" / "glossary-seed.csv"
+# Look for seed CSV in multiple locations (repo root or Docker container)
+_candidates = [
+    Path(__file__).resolve().parents[1] / "docs" / "glossary-seed.csv",
+    Path("/app/seed/glossary-seed.csv"),
+]
+SEED_CSV = next((p for p in _candidates if p.exists()), _candidates[0])
 
 
 async def ensure_admin(session: AsyncSession) -> None:

@@ -12,8 +12,12 @@ router = APIRouter(prefix="/api/import", tags=["import"])
 
 
 @router.get("/browse")
-async def browse_folder(path: str = Query(default="~")):
+async def browse_folder(path: str = Query(default="")):
     """Browse server-side folders for the import dialog."""
+    # Default: start at /scans (Docker mount) or home directory
+    if not path:
+        scans_dir = Path("/scans")
+        path = str(scans_dir) if scans_dir.is_dir() else "~"
     target = Path(path).expanduser().resolve()
     if not target.exists():
         raise HTTPException(status_code=404, detail="Path not found")
