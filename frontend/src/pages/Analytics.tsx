@@ -31,9 +31,10 @@ const COLORS = [
 interface OverviewData {
   total_records?: number;
   total_personnel?: number;
-  losses_over_time?: Array<{ month: string; count: number }>;
-  by_aircraft_type?: Array<{ aircraft_type: string; count: number }>;
-  personnel_outcomes?: Array<{ fate: string; count: number }>;
+  by_month?: Array<{ month: string; count: number }>;
+  by_aircraft?: Array<{ name: string; count: number }>;
+  by_incident?: Array<{ name: string; count: number }>;
+  by_fate?: Array<{ name: string; count: number }>;
 }
 
 function StatCard({ label, value }: { label: string; value: number | string }) {
@@ -79,9 +80,9 @@ export default function Analytics() {
     );
   }
 
-  const lossesData = data?.losses_over_time ?? [];
-  const aircraftData = data?.by_aircraft_type ?? [];
-  const fatesData = data?.personnel_outcomes ?? [];
+  const lossesData = data?.by_month ?? [];
+  const aircraftData = data?.by_aircraft ?? [];
+  const fatesData = data?.by_fate ?? [];
 
   return (
     <div>
@@ -160,7 +161,7 @@ export default function Analytics() {
                 />
                 <YAxis
                   type="category"
-                  dataKey="aircraft_type"
+                  dataKey="name"
                   tick={{
                     fontFamily: 'Inter, system-ui, sans-serif',
                     fontSize: 11,
@@ -197,7 +198,7 @@ export default function Analytics() {
                 <Pie
                   data={fatesData}
                   dataKey="count"
-                  nameKey="fate"
+                  nameKey="name"
                   cx="50%"
                   cy="50%"
                   outerRadius={85}
@@ -231,7 +232,7 @@ export default function Analytics() {
         )}
       </div>
 
-      {lossesData.length === 0 && aircraftData.length === 0 && fatesData.length === 0 && (
+      {lossesData.length === 0 && aircraftData.length === 0 && fatesData.length === 0 && (data?.total_records ?? 0) === 0 && (
         <div className="border border-dashed border-parchment rounded-lg py-20 text-center">
           <p className="font-heading text-xl text-slate-ink/30 mb-2">No data yet</p>
           <p className="font-body text-sm text-slate-ink/40">
