@@ -15,11 +15,13 @@ function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
     complete: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
     processing: 'bg-amber-50 text-amber-700 border border-amber-200',
+    importing: 'bg-blue-50 text-blue-700 border border-blue-200 animate-pulse',
     pending: 'bg-slate-50 text-slate-500 border border-slate-200',
   };
   const labels: Record<string, string> = {
     complete: 'Complete',
     processing: 'Processing',
+    importing: 'Importing...',
     pending: 'Pending',
   };
   const cls = styles[status] ?? styles.pending;
@@ -167,22 +169,38 @@ function ImportDialog({ onClose, onImported }: { onClose: () => void; onImported
     setShowBrowser(false);
   };
 
+  const [importProgress, setImportProgress] = useState<{ pages_imported: number; total_pages: number } | null>(null);
+
   const handleImport = async () => {
     if (!folderPath || !name) return;
     setImporting(true);
     setError(null);
     try {
-      await api.importFolder({
+      const collection = await api.importFolder({
         folder_path: folderPath,
         name,
         source_reference: sourceRef || undefined,
         description: description || undefined,
         document_type: 'loss_report',
       });
-      onImported();
+
+      // Poll for progress
+      const collectionId = collection.id;
+      const poll = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/import/progress/${collectionId}`);
+          const data = await res.json();
+          setImportProgress({ pages_imported: data.pages_imported, total_pages: data.total_pages });
+          if (data.done) {
+            clearInterval(poll);
+            onImported();
+          }
+        } catch {
+          clearInterval(poll);
+        }
+      }, 1500);
     } catch (e: any) {
       setError(e.message);
-    } finally {
       setImporting(false);
     }
   };
@@ -282,6 +300,29 @@ function ImportDialog({ onClose, onImported }: { onClose: () => void; onImported
             </div>
 
             {error && <p className="font-body text-sm text-red-600 mt-3">{error}</p>}
+
+            {importProgress && (
+              <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-body text-sm text-blue-700">
+                    Importing pages...
+                  </span>
+                  <span className="font-mono text-xs text-blue-600">
+                    {importProgress.pages_imported} / {importProgress.total_pages}
+                  </span>
+                </div>
+                <div className="h-2 bg-blue-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-blue-500 rounded-full transition-all duration-500"
+                    style={{
+                      width: `${importProgress.total_pages > 0
+                        ? (importProgress.pages_imported / importProgress.total_pages) * 100
+                        : 0}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            )}
 
             <div className="flex justify-end gap-3 mt-6">
               <button

@@ -1,12 +1,12 @@
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_session
 from app.schemas.collection import CollectionResponse
-from app.services.import_service import import_scan_folder, SUPPORTED_EXTENSIONS
+from app.services.import_service import import_scan_folder, import_scan_folder_background, SUPPORTED_EXTENSIONS
 
 router = APIRouter(prefix="/api/import", tags=["import"])
 
@@ -55,6 +55,30 @@ async def browse_folder(path: str = Query(default="")):
     }
 
 
+@router.get("/progress/{collection_id}")
+async def import_progress(collection_id: str, session: AsyncSession = Depends(get_session)):
+    """Check how many pages have been imported so far."""
+    from sqlalchemy import func, select
+    from app.db.models import Collection, Page
+
+    collection = await session.get(Collection, collection_id)
+    if not collection:
+        raise HTTPException(status_code=404, detail="Collection not found")
+
+    result = await session.execute(
+        select(func.count(Page.id)).where(Page.collection_id == collection_id)
+    )
+    pages_imported = result.scalar() or 0
+
+    return {
+        "collection_id": collection_id,
+        "status": collection.status,
+        "total_pages": collection.page_count,
+        "pages_imported": pages_imported,
+        "done": collection.status != "importing",
+    }
+
+
 class ImportRequest(BaseModel):
     folder_path: str
     name: str
@@ -64,11 +88,16 @@ class ImportRequest(BaseModel):
 
 
 @router.post("", response_model=CollectionResponse, status_code=201)
-async def import_folder(data: ImportRequest, session: AsyncSession = Depends(get_session)):
+async def import_folder(
+    data: ImportRequest,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_session),
+):
     folder = Path(data.folder_path)
     if not folder.is_dir():
         raise HTTPException(status_code=400, detail=f"Folder not found: {data.folder_path}")
 
+    # Create collection record immediately (fast)
     collection = await import_scan_folder(
         session=session,
         folder_path=folder,
@@ -77,4 +106,8 @@ async def import_folder(data: ImportRequest, session: AsyncSession = Depends(get
         description=data.description,
         document_type=data.document_type,
     )
+
+    # Copy files + create pages in background (slow)
+    background_tasks.add_task(import_scan_folder_background, collection.id, folder)
+
     return collection
