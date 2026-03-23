@@ -1,12 +1,22 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.database import SessionLocal
 from app.db.models import Collection, Glossary, Page, PipelineJob, Record, Personnel
+
+
+def _parse_date(val: str | None) -> date | None:
+    """Parse ISO date string from Claude, return None on failure."""
+    if not val:
+        return None
+    try:
+        return date.fromisoformat(val)
+    except (ValueError, TypeError):
+        return None
 
 
 async def _get_glossary_context(session: AsyncSession) -> dict[str, str]:
@@ -16,6 +26,17 @@ async def _get_glossary_context(session: AsyncSession) -> dict[str, str]:
     )
     entries = result.scalars().all()
     return {e.term: e.definition for e in entries}
+
+
+async def _pages_with_records(session: AsyncSession, collection_id: uuid.UUID) -> set[uuid.UUID]:
+    """Get set of page IDs that already have extracted records (for duplicate prevention)."""
+    result = await session.execute(
+        select(Record.page_id)
+        .join(Page)
+        .where(Page.collection_id == collection_id)
+        .distinct()
+    )
+    return {row[0] for row in result.fetchall()}
 
 
 async def run_kraken_stage(session: AsyncSession, collection_id: uuid.UUID, job_id: uuid.UUID):
@@ -55,7 +76,7 @@ async def run_kraken_stage(session: AsyncSession, collection_id: uuid.UUID, job_
 
 
 async def run_claude_stage(session: AsyncSession, collection_id: uuid.UUID, job_id: uuid.UUID):
-    """Run Claude extraction on all pages with Kraken text."""
+    """Run Claude extraction on pages that don't already have records."""
     from app.services.ocr_claude import extract_records_from_page
 
     job = await session.get(PipelineJob, job_id)
@@ -65,14 +86,30 @@ async def run_claude_stage(session: AsyncSession, collection_id: uuid.UUID, job_
 
     glossary_context = await _get_glossary_context(session)
 
+    # Get pages that already have records — skip them
+    already_extracted = await _pages_with_records(session, collection_id)
+
     result = await session.execute(
         select(Page)
-        .where(Page.collection_id == collection_id, Page.ocr_status.in_(["extracted", "pending"]))
+        .where(Page.collection_id == collection_id)
         .order_by(Page.page_number)
     )
-    pages = result.scalars().all()
+    all_pages = result.scalars().all()
 
-    for page in pages:
+    # Filter to only pages without records
+    pages_to_process = [p for p in all_pages if p.id not in already_extracted]
+
+    # Update total to reflect actual work
+    job.total_pages = len(pages_to_process)
+    await session.commit()
+
+    if not pages_to_process:
+        job.status = "completed"
+        job.completed_at = datetime.now(timezone.utc)
+        await session.commit()
+        return
+
+    for page in pages_to_process:
         try:
             records_data = await extract_records_from_page(
                 image_path=page.image_path,
@@ -83,6 +120,10 @@ async def run_claude_stage(session: AsyncSession, collection_id: uuid.UUID, job_
             for rec_data in records_data:
                 personnel_data = rec_data.pop("personnel", [])
                 new_abbrevs = rec_data.pop("new_abbreviations", [])
+
+                # Parse date string to date object
+                if "date" in rec_data and isinstance(rec_data["date"], str):
+                    rec_data["date"] = _parse_date(rec_data["date"])
 
                 # Filter to only valid Record columns
                 valid_columns = {c.key for c in Record.__table__.columns}
@@ -111,6 +152,8 @@ async def run_claude_stage(session: AsyncSession, collection_id: uuid.UUID, job_
                         )
                         session.add(glossary_entry)
 
+            # Mark page as extracted
+            page.ocr_status = "claude_extracted"
             job.processed_pages += 1
             job.last_processed_page_id = page.id
             await session.commit()
@@ -119,6 +162,22 @@ async def run_claude_stage(session: AsyncSession, collection_id: uuid.UUID, job_
             job.error_message = f"Failed on page {page.page_number}: {str(e)}"
             await session.commit()
             return
+
+    # Update collection status
+    collection = await session.get(Collection, collection_id)
+    if collection:
+        # Check if all pages are extracted
+        total_pages = (await session.execute(
+            select(func.count(Page.id)).where(Page.collection_id == collection_id)
+        )).scalar()
+        extracted_pages = (await session.execute(
+            select(func.count(Page.id)).where(
+                Page.collection_id == collection_id,
+                Page.ocr_status == "claude_extracted",
+            )
+        )).scalar()
+        if extracted_pages == total_pages:
+            collection.status = "complete"
 
     job.status = "completed"
     job.completed_at = datetime.now(timezone.utc)
@@ -134,6 +193,8 @@ async def run_embedding_stage(session: AsyncSession, collection_id: uuid.UUID, j
     job.started_at = datetime.now(timezone.utc)
     await session.commit()
 
+    glossary = await _get_glossary_context(session)
+
     result = await session.execute(
         select(Record)
         .join(Record.page)
@@ -144,7 +205,21 @@ async def run_embedding_stage(session: AsyncSession, collection_id: uuid.UUID, j
 
     for record in records:
         try:
-            summary = generate_record_summary(record)
+            personnel_dicts = [
+                {"rank_full": p.rank_full, "surname": p.surname, "fate_english": p.fate_english}
+                for p in record.personnel
+            ]
+            summary = generate_record_summary(
+                date=str(record.date) if record.date else None,
+                aircraft_type=record.aircraft_type,
+                werknummer=record.werknummer,
+                unit_designation=record.unit_designation,
+                incident_type=record.incident_type,
+                damage_percentage=record.damage_percentage,
+                location=record.location,
+                personnel=personnel_dicts,
+                glossary=glossary,
+            )
             record.search_embedding = await generate_embedding(summary)
             job.processed_pages += 1
             await session.commit()
@@ -159,7 +234,7 @@ async def run_embedding_stage(session: AsyncSession, collection_id: uuid.UUID, j
     await session.commit()
 
 
-# Background task wrappers — create their own sessions (Fix 1)
+# Background task wrappers — create their own sessions
 async def run_kraken_stage_background(collection_id: uuid.UUID, job_id: uuid.UUID):
     async with SessionLocal() as session:
         await run_kraken_stage(session, collection_id, job_id)

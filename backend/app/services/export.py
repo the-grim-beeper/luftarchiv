@@ -8,6 +8,7 @@ into CSV rows with dynamic personnel columns (person_1_rank, person_1_surname, â
 import csv
 import io
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -78,6 +79,27 @@ async def export_records_to_csv(
 
     output = io.StringIO()
     writer = csv.writer(output)
+
+    # Provenance header for academic use
+    from sqlalchemy import func
+    total_pages = (await session.execute(
+        select(func.count(Page.id)).where(Page.collection_id == collection_id)
+    )).scalar()
+    extracted_pages = (await session.execute(
+        select(func.count(Page.id)).where(
+            Page.collection_id == collection_id,
+            Page.ocr_status == "claude_extracted",
+        )
+    )).scalar()
+
+    writer.writerow([f"# Luftarchiv Export â€” {collection.name}"])
+    writer.writerow([f"# Source Reference: {collection.source_reference or 'N/A'}"])
+    writer.writerow([f"# Pages: {extracted_pages}/{total_pages} extracted"])
+    writer.writerow([f"# Records: {len(records)}"])
+    writer.writerow([f"# Status: {'COMPLETE' if extracted_pages == total_pages else 'PARTIAL'}"])
+    writer.writerow([f"# Exported: {datetime.now(timezone.utc).isoformat()}"])
+    writer.writerow([])
+
     writer.writerow(header)
 
     for record in records:
