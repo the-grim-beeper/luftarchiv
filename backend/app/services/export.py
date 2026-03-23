@@ -68,14 +68,18 @@ async def export_records_to_csv(
     )
     records = result.scalars().all()
 
-    # Determine max personnel count across all records
-    max_personnel = max((len(r.personnel) for r in records), default=0)
+    # Cap personnel columns at 6 (covers 99%+ of records)
+    MAX_PERSONNEL_COLS = 6
+    actual_max = max((len(r.personnel) for r in records), default=0)
+    max_personnel = min(actual_max, MAX_PERSONNEL_COLS)
 
     # Build header
     header = list(RECORD_FIELDS)
     for i in range(1, max_personnel + 1):
         for field in PERSONNEL_FIELDS:
             header.append(f"person_{i}_{field}")
+    if actual_max > MAX_PERSONNEL_COLS:
+        header.append("additional_personnel")
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -105,13 +109,22 @@ async def export_records_to_csv(
     for record in records:
         row: list = [str(getattr(record, f, "") or "") for f in RECORD_FIELDS]
 
-        # Personnel columns (padded to max_personnel)
-        for i, person in enumerate(record.personnel):
+        # Personnel columns (capped to max_personnel)
+        for i, person in enumerate(record.personnel[:max_personnel]):
             for field in PERSONNEL_FIELDS:
                 row.append(str(getattr(person, field, "") or ""))
         # Pad remaining personnel slots
-        remaining = max_personnel - len(record.personnel)
+        remaining = max_personnel - min(len(record.personnel), max_personnel)
         row.extend([""] * remaining * len(PERSONNEL_FIELDS))
+
+        # Overflow personnel as semicolon-separated string
+        if actual_max > MAX_PERSONNEL_COLS:
+            overflow = record.personnel[MAX_PERSONNEL_COLS:]
+            if overflow:
+                parts = [f"{getattr(p, 'rank_abbreviation', '')} {getattr(p, 'surname', '')} ({getattr(p, 'fate_english', '')})" for p in overflow]
+                row.append("; ".join(parts))
+            else:
+                row.append("")
 
         writer.writerow(row)
 
