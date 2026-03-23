@@ -256,8 +256,144 @@ async def run_kraken_stage_background(collection_id: uuid.UUID, job_id: uuid.UUI
 
 
 async def run_claude_stage_background(collection_id: uuid.UUID, job_id: uuid.UUID, max_pages: int | None = None):
+    """Run Claude extraction with periodic session refresh to prevent connection timeout."""
+    BATCH_SIZE = 25  # Refresh session every 25 pages
+
+    # Initial setup: get page list and glossary
     async with SessionLocal() as session:
-        await run_claude_stage(session, collection_id, job_id, max_pages)
+        from app.services.llm_config import load_config
+        config = load_config()
+        if config.provider == "none":
+            job = await session.get(PipelineJob, job_id)
+            job.status = "completed"
+            job.completed_at = datetime.now(timezone.utc)
+            await session.commit()
+            return
+
+        if config.provider == "ollama":
+            from app.services.ocr_ollama import extract_records_from_page
+        else:
+            from app.services.ocr_claude import extract_records_from_page
+
+        job = await session.get(PipelineJob, job_id)
+        job.status = "running"
+        job.started_at = datetime.now(timezone.utc)
+        await session.commit()
+
+        glossary_context = await _get_glossary_context(session)
+        already_extracted = await _pages_with_records(session, collection_id)
+
+        result = await session.execute(
+            select(Page)
+            .where(Page.collection_id == collection_id)
+            .order_by(Page.page_number)
+        )
+        all_pages = result.scalars().all()
+        pages_to_process = [p for p in all_pages if p.id not in already_extracted]
+        if max_pages and max_pages < len(pages_to_process):
+            pages_to_process = pages_to_process[:max_pages]
+
+        # Store page info as plain data (not ORM objects that expire)
+        page_infos = [(p.id, p.page_number, p.image_path, p.raw_ocr_text or "") for p in pages_to_process]
+
+        job.total_pages = len(page_infos)
+        await session.commit()
+
+    if not page_infos:
+        async with SessionLocal() as session:
+            job = await session.get(PipelineJob, job_id)
+            job.status = "completed"
+            job.completed_at = datetime.now(timezone.utc)
+            await session.commit()
+        return
+
+    # Process in batches with fresh sessions
+    processed = 0
+    for batch_start in range(0, len(page_infos), BATCH_SIZE):
+        batch = page_infos[batch_start:batch_start + BATCH_SIZE]
+
+        async with SessionLocal() as session:
+            for page_id, page_number, image_path, raw_ocr_text in batch:
+                try:
+                    records_data = await extract_records_from_page(
+                        image_path=image_path,
+                        raw_ocr_text=raw_ocr_text,
+                        glossary_context=glossary_context,
+                    )
+
+                    for rec_data in records_data:
+                        personnel_data = rec_data.pop("personnel", [])
+                        new_abbrevs = rec_data.pop("new_abbreviations", [])
+
+                        if "date" in rec_data and isinstance(rec_data["date"], str):
+                            rec_data["date"] = _parse_date(rec_data["date"])
+
+                        valid_columns = {c.key for c in Record.__table__.columns}
+                        filtered = {k: v for k, v in rec_data.items() if k in valid_columns}
+
+                        record = Record(page_id=page_id, **filtered)
+                        session.add(record)
+                        await session.flush()
+
+                        for p in personnel_data:
+                            person = Personnel(record_id=record.id, **p)
+                            session.add(person)
+
+                        for abbrev in new_abbrevs:
+                            existing = await session.execute(
+                                select(Glossary).where(Glossary.term == abbrev["term"])
+                            )
+                            if not existing.scalar_one_or_none():
+                                session.add(Glossary(
+                                    term=abbrev["term"],
+                                    definition=abbrev.get("suggested_definition", ""),
+                                    category=abbrev.get("category", "other"),
+                                    trust_level="ai_suggested",
+                                    source=f"Auto-detected from page {page_number}",
+                                ))
+
+                    # Mark page and update progress
+                    page = await session.get(Page, page_id)
+                    if page:
+                        page.ocr_status = "claude_extracted"
+                    processed += 1
+
+                    job = await session.get(PipelineJob, job_id)
+                    job.processed_pages = processed
+                    job.last_processed_page_id = page_id
+                    await session.commit()
+
+                except Exception as e:
+                    await session.rollback()
+                    async with SessionLocal() as err_session:
+                        job = await err_session.get(PipelineJob, job_id)
+                        job.status = "failed"
+                        job.processed_pages = processed
+                        job.error_message = f"Failed on page {page_number}: {str(e)[:500]}"
+                        await err_session.commit()
+                    return
+
+    # Complete
+    async with SessionLocal() as session:
+        collection = await session.get(Collection, collection_id)
+        if collection:
+            total = (await session.execute(
+                select(func.count(Page.id)).where(Page.collection_id == collection_id)
+            )).scalar()
+            extracted = (await session.execute(
+                select(func.count(Page.id)).where(
+                    Page.collection_id == collection_id,
+                    Page.ocr_status == "claude_extracted",
+                )
+            )).scalar()
+            if extracted == total:
+                collection.status = "complete"
+
+        job = await session.get(PipelineJob, job_id)
+        job.status = "completed"
+        job.processed_pages = processed
+        job.completed_at = datetime.now(timezone.utc)
+        await session.commit()
 
 
 async def run_embedding_stage_background(collection_id: uuid.UUID, job_id: uuid.UUID, max_pages: int | None = None):
