@@ -58,6 +58,98 @@ function CollectionCard({ collection }: { collection: Collection }) {
   );
 }
 
+interface BrowseEntry {
+  name: string;
+  path: string;
+  type: string;
+  image_count: number;
+}
+
+function FolderBrowser({
+  onSelect,
+  onCancel,
+}: {
+  onSelect: (path: string) => void;
+  onCancel: () => void;
+}) {
+  const [currentPath, setCurrentPath] = useState('~');
+  const [parentPath, setParentPath] = useState<string | null>(null);
+  const [entries, setEntries] = useState<BrowseEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const browse = (path: string) => {
+    setLoading(true);
+    fetch(`/api/import/browse?path=${encodeURIComponent(path)}`)
+      .then((r) => {
+        if (!r.ok) throw new Error('Could not browse path');
+        return r.json();
+      })
+      .then((data) => {
+        setCurrentPath(data.current);
+        setParentPath(data.parent);
+        setEntries(data.entries);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { browse('~'); }, []);
+
+  return (
+    <div className="space-y-3">
+      {/* Current path */}
+      <div className="flex items-center gap-2">
+        {parentPath && (
+          <button
+            onClick={() => browse(parentPath)}
+            className="px-2 h-7 rounded border border-parchment text-xs font-mono text-slate-ink/60 hover:border-archive-amber hover:text-archive-amber transition-colors"
+          >
+            ← Up
+          </button>
+        )}
+        <span className="font-mono text-xs text-slate-ink/50 truncate flex-1">{currentPath}</span>
+        <button
+          onClick={() => onSelect(currentPath)}
+          className="px-3 h-7 rounded bg-archive-amber text-white text-xs font-body hover:bg-archive-amber-light transition-colors"
+        >
+          Select this folder
+        </button>
+      </div>
+
+      {/* Folder list */}
+      <div className="border border-parchment rounded-lg max-h-56 overflow-y-auto bg-ivory/50">
+        {loading ? (
+          <p className="p-3 text-xs text-slate-ink/40 font-body">Loading...</p>
+        ) : entries.length === 0 ? (
+          <p className="p-3 text-xs text-slate-ink/40 font-body">No subfolders</p>
+        ) : (
+          entries.map((e) => (
+            <button
+              key={e.path}
+              onClick={() => browse(e.path)}
+              onDoubleClick={() => {
+                if (e.image_count > 0) onSelect(e.path);
+              }}
+              className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-parchment/50 transition-colors border-b border-parchment/50 last:border-b-0"
+            >
+              <span className="text-archive-amber text-sm">&#128193;</span>
+              <span className="font-body text-sm text-slate-ink flex-1 truncate">{e.name}</span>
+              {e.image_count > 0 && (
+                <span className="text-xs font-mono text-trust-verified bg-emerald-50 px-1.5 py-0.5 rounded">
+                  {e.image_count} images
+                </span>
+              )}
+            </button>
+          ))
+        )}
+      </div>
+      <p className="font-body text-xs text-slate-ink/40">
+        Click a folder to open it. Double-click a folder with images to select it.
+      </p>
+    </div>
+  );
+}
+
 function ImportDialog({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
   const [folderPath, setFolderPath] = useState('');
   const [name, setName] = useState('');
@@ -65,6 +157,15 @@ function ImportDialog({ onClose, onImported }: { onClose: () => void; onImported
   const [description, setDescription] = useState('');
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showBrowser, setShowBrowser] = useState(true);
+
+  const handleSelectFolder = (path: string) => {
+    setFolderPath(path);
+    // Auto-fill name from folder name
+    const folderName = path.split('/').pop() || '';
+    if (!name) setName(folderName.replace(/_/g, ' '));
+    setShowBrowser(false);
+  };
 
   const handleImport = async () => {
     if (!folderPath || !name) return;
@@ -88,79 +189,118 @@ function ImportDialog({ onClose, onImported }: { onClose: () => void; onImported
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-ink/30 backdrop-blur-sm">
-      <div className="bg-white rounded-xl border border-parchment shadow-lg w-full max-w-lg mx-4 p-6">
+      <div className="bg-white rounded-xl border border-parchment shadow-lg w-full max-w-2xl mx-4 p-6">
         <h3 className="font-heading text-xl font-bold text-slate-ink mb-4">Import Collection</h3>
-        <p className="font-body text-sm text-slate-ink/50 mb-5">
-          Point to a folder of scanned document images (JPG, PNG, TIFF).
-        </p>
 
-        <div className="space-y-4">
-          <div>
-            <label className="block font-body text-xs text-slate-ink/60 mb-1">
-              Folder path <span className="text-red-400">*</span>
-            </label>
-            <input
-              type="text"
-              value={folderPath}
-              onChange={(e) => setFolderPath(e.target.value)}
-              placeholder="/Users/you/Desktop/RL 2-III_1190"
-              className="w-full h-9 px-3 border border-parchment rounded-lg font-mono text-sm text-slate-ink bg-ivory focus:outline-none focus:border-archive-amber transition-colors"
+        {showBrowser ? (
+          <>
+            <p className="font-body text-sm text-slate-ink/50 mb-4">
+              Browse to a folder containing scanned document images (JPG, PNG, TIFF).
+            </p>
+            <FolderBrowser
+              onSelect={handleSelectFolder}
+              onCancel={onClose}
             />
-          </div>
-          <div>
-            <label className="block font-body text-xs text-slate-ink/60 mb-1">
-              Collection name <span className="text-red-400">*</span>
-            </label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="RL 2-III/1190"
-              className="w-full h-9 px-3 border border-parchment rounded-lg font-body text-sm text-slate-ink bg-ivory focus:outline-none focus:border-archive-amber transition-colors"
-            />
-          </div>
-          <div>
-            <label className="block font-body text-xs text-slate-ink/60 mb-1">
-              Source reference
-            </label>
-            <input
-              type="text"
-              value={sourceRef}
-              onChange={(e) => setSourceRef(e.target.value)}
-              placeholder="RL_2_III_1190"
-              className="w-full h-9 px-3 border border-parchment rounded-lg font-mono text-sm text-slate-ink bg-ivory focus:outline-none focus:border-archive-amber transition-colors"
-            />
-          </div>
-          <div>
-            <label className="block font-body text-xs text-slate-ink/60 mb-1">Description</label>
-            <input
-              type="text"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Aircraft accidents and losses at front units"
-              className="w-full h-9 px-3 border border-parchment rounded-lg font-body text-sm text-slate-ink bg-ivory focus:outline-none focus:border-archive-amber transition-colors"
-            />
-          </div>
-        </div>
+            <div className="flex justify-between mt-5 pt-4 border-t border-parchment">
+              <button
+                onClick={onClose}
+                className="px-4 h-9 rounded-lg border border-parchment font-body text-sm text-slate-ink/60 hover:border-archive-amber hover:text-archive-amber transition-colors"
+              >
+                Cancel
+              </button>
+              <div className="flex items-center gap-3">
+                <span className="font-body text-xs text-slate-ink/40">Or enter path manually:</span>
+                <button
+                  onClick={() => setShowBrowser(false)}
+                  className="px-3 h-8 rounded border border-parchment font-body text-xs text-slate-ink/60 hover:border-archive-amber hover:text-archive-amber transition-colors"
+                >
+                  Type path
+                </button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="font-body text-sm text-slate-ink/50 mb-5">
+              Configure the collection details.
+            </p>
+            <div className="space-y-4">
+              <div>
+                <label className="block font-body text-xs text-slate-ink/60 mb-1">
+                  Folder path <span className="text-red-400">*</span>
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={folderPath}
+                    onChange={(e) => setFolderPath(e.target.value)}
+                    placeholder="/Users/you/Desktop/RL 2-III_1190"
+                    className="flex-1 h-9 px-3 border border-parchment rounded-lg font-mono text-sm text-slate-ink bg-ivory focus:outline-none focus:border-archive-amber transition-colors"
+                  />
+                  <button
+                    onClick={() => setShowBrowser(true)}
+                    className="px-3 h-9 rounded-lg border border-parchment font-body text-xs text-slate-ink/60 hover:border-archive-amber hover:text-archive-amber transition-colors"
+                  >
+                    Browse
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block font-body text-xs text-slate-ink/60 mb-1">
+                  Collection name <span className="text-red-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="RL 2-III/1190"
+                  className="w-full h-9 px-3 border border-parchment rounded-lg font-body text-sm text-slate-ink bg-ivory focus:outline-none focus:border-archive-amber transition-colors"
+                />
+              </div>
+              <div>
+                <label className="block font-body text-xs text-slate-ink/60 mb-1">
+                  Source reference
+                </label>
+                <input
+                  type="text"
+                  value={sourceRef}
+                  onChange={(e) => setSourceRef(e.target.value)}
+                  placeholder="RL_2_III_1190"
+                  className="w-full h-9 px-3 border border-parchment rounded-lg font-mono text-sm text-slate-ink bg-ivory focus:outline-none focus:border-archive-amber transition-colors"
+                />
+              </div>
+              <div>
+                <label className="block font-body text-xs text-slate-ink/60 mb-1">Description</label>
+                <input
+                  type="text"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Aircraft accidents and losses at front units"
+                  className="w-full h-9 px-3 border border-parchment rounded-lg font-body text-sm text-slate-ink bg-ivory focus:outline-none focus:border-archive-amber transition-colors"
+                />
+              </div>
+            </div>
 
-        {error && <p className="font-body text-sm text-red-600 mt-3">{error}</p>}
+            {error && <p className="font-body text-sm text-red-600 mt-3">{error}</p>}
 
-        <div className="flex justify-end gap-3 mt-6">
-          <button
-            onClick={onClose}
-            disabled={importing}
-            className="px-4 h-9 rounded-lg border border-parchment font-body text-sm text-slate-ink/60 hover:border-archive-amber hover:text-archive-amber transition-colors disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleImport}
-            disabled={importing || !folderPath || !name}
-            className="px-5 h-9 rounded-lg bg-archive-amber text-white font-body text-sm hover:bg-archive-amber-light transition-colors disabled:opacity-50"
-          >
-            {importing ? 'Importing...' : 'Import'}
-          </button>
-        </div>
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={onClose}
+                disabled={importing}
+                className="px-4 h-9 rounded-lg border border-parchment font-body text-sm text-slate-ink/60 hover:border-archive-amber hover:text-archive-amber transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleImport}
+                disabled={importing || !folderPath || !name}
+                className="px-5 h-9 rounded-lg bg-archive-amber text-white font-body text-sm hover:bg-archive-amber-light transition-colors disabled:opacity-50"
+              >
+                {importing ? 'Importing...' : 'Import'}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
