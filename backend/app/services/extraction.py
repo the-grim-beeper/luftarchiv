@@ -32,7 +32,7 @@ async def _pages_with_records(session: AsyncSession, collection_id: uuid.UUID) -
     """Get set of page IDs that already have extracted records (for duplicate prevention)."""
     result = await session.execute(
         select(Record.page_id)
-        .join(Page)
+        .join(Page, Record.page_id == Page.id)
         .where(Page.collection_id == collection_id)
         .distinct()
     )
@@ -210,7 +210,7 @@ async def run_embedding_stage(session: AsyncSession, collection_id: uuid.UUID, j
 
     result = await session.execute(
         select(Record)
-        .join(Record.page)
+        .join(Page, Record.page_id == Page.id)
         .where(Page.collection_id == collection_id, Record.search_embedding.is_(None))
         .options(selectinload(Record.personnel))
     )

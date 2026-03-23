@@ -61,7 +61,7 @@ async def export_records_to_csv(
     # Fetch all records via pages
     result = await session.execute(
         select(Record)
-        .join(Record.page)
+        .join(Page, Record.page_id == Page.id)
         .where(Page.collection_id == collection_id)
         .options(selectinload(Record.personnel))
         .order_by(Page.page_number, Record.entry_number)
