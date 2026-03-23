@@ -77,6 +77,21 @@ export default function DocumentViewer() {
     );
   }
 
+  const [extracting, setExtracting] = useState(false);
+  const [extractStatus, setExtractStatus] = useState<string | null>(null);
+
+  const startExtraction = async () => {
+    if (!collectionId) return;
+    setExtracting(true);
+    setExtractStatus('Starting Claude extraction...');
+    try {
+      await api.startExtraction(collectionId, 'claude');
+      setExtractStatus('Extraction running in background. Records will appear as pages are processed. Refresh to check.');
+    } catch (e: any) {
+      setExtractStatus(`Error: ${e.message}`);
+    }
+  };
+
   const exportUrl = collectionId ? api.exportCsv(collectionId) : null;
   const imagePath = pageData?.page?.image_path ?? null;
   const records = pageData?.records ?? [];
@@ -127,6 +142,17 @@ export default function DocumentViewer() {
           </button>
         </div>
 
+        {records.length === 0 && !extracting && (
+          <button
+            onClick={startExtraction}
+            className="px-3 h-8 flex items-center rounded bg-trust-ai text-white font-body text-sm hover:bg-indigo-600 transition-colors"
+          >
+            Extract with Claude
+          </button>
+        )}
+        {extractStatus && (
+          <span className="font-body text-xs text-trust-ai max-w-xs truncate">{extractStatus}</span>
+        )}
         {exportUrl && (
           <a
             href={exportUrl}
