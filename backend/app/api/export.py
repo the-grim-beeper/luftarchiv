@@ -21,10 +21,11 @@ async def export_collection_csv(
         raise HTTPException(status_code=404, detail=str(exc))
 
     def _iter_csv():
+        yield "\ufeff"  # UTF-8 BOM for Excel/Numbers compatibility
         yield csv_data
 
     return StreamingResponse(
         _iter_csv(),
-        media_type="text/csv",
+        media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

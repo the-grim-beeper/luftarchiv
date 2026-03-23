@@ -96,13 +96,7 @@ async def export_records_to_csv(
         )
     )).scalar()
 
-    writer.writerow([f"# Luftarchiv Export — {collection.name}"])
-    writer.writerow([f"# Source Reference: {collection.source_reference or 'N/A'}"])
-    writer.writerow([f"# Pages: {extracted_pages}/{total_pages} extracted"])
-    writer.writerow([f"# Records: {len(records)}"])
-    writer.writerow([f"# Status: {'COMPLETE' if extracted_pages == total_pages else 'PARTIAL'}"])
-    writer.writerow([f"# Exported: {datetime.now(timezone.utc).isoformat()}"])
-    writer.writerow([])
+    status = "COMPLETE" if extracted_pages == total_pages else "PARTIAL"
 
     writer.writerow(header)
 
@@ -130,5 +124,5 @@ async def export_records_to_csv(
 
     csv_string = output.getvalue()
     safe_name = collection.name.replace(" ", "_").replace("/", "-")
-    filename = f"luftarchiv_{safe_name}_{collection_id}.csv"
+    filename = f"luftarchiv_{safe_name}_{status}_{len(records)}records.csv"
     return csv_string, filename
