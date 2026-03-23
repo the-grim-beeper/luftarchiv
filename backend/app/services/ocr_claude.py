@@ -179,15 +179,20 @@ async def _call_claude(image_path: str | Path, prompt: str) -> dict:
     # Extract JSON from response — handle text before/after code blocks
     stripped = raw_text.strip()
 
-    # Try to find JSON in a code block anywhere in the response
+    # Try to find JSON in a code block (closed or truncated)
     code_block = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", stripped)
     if code_block:
         stripped = code_block.group(1).strip()
     else:
-        # Try to find raw JSON object
-        json_match = re.search(r'\{[\s\S]*\}', stripped)
-        if json_match:
-            stripped = json_match.group(0)
+        # Handle truncated code block (no closing ```)
+        open_block = re.search(r"```(?:json)?\s*([\s\S]*)", stripped)
+        if open_block:
+            stripped = open_block.group(1).strip()
+        else:
+            # Try to find raw JSON object
+            json_match = re.search(r'\{[\s\S]*\}', stripped)
+            if json_match:
+                stripped = json_match.group(0)
 
     try:
         return json.loads(stripped)
