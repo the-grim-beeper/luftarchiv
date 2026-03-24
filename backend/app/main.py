@@ -11,6 +11,7 @@ from app.api.knowledge import router as knowledge_router
 from app.api.records import router as records_router
 from app.api.analytics import router as analytics_router
 from app.api.search import router as search_router
+from app.api.geocode import router as geocode_router
 from app.api.settings import router as settings_router
 
 app = FastAPI(title="Luftarchiv", description="OCR Archive Search Tool for Luftwaffe Research")
@@ -30,6 +31,7 @@ app.include_router(search_router)
 app.include_router(records_router)
 app.include_router(export_router)
 app.include_router(analytics_router)
+app.include_router(geocode_router)
 app.include_router(settings_router)
 
 
